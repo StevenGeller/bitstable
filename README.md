@@ -15,9 +15,10 @@ A truly decentralized stable value protocol on Bitcoin using market-based liquid
 BitStable creates stable value backed by Bitcoin collateral through:
 
 1. **Overcollateralized Vaults**: Users deposit Bitcoin (150% minimum) to mint stable value
-2. **Oracle Price Feeds**: Decentralized price consensus from multiple exchanges
-3. **Market Liquidations**: Anyone can liquidate unhealthy vaults for profit
-4. **Stability Fees**: Small annual fee (2%) to stabilize the peg
+2. **Multisig Custody**: Trustless Bitcoin escrow with 2-of-3 multisig contracts
+3. **Oracle Price Feeds**: Decentralized price consensus with threshold signatures
+4. **Market Liquidations**: Anyone can liquidate unhealthy vaults for profit
+5. **Stability Fees**: Small annual fee (2%) to stabilize the peg
 
 ## Quick Start
 
@@ -48,11 +49,23 @@ cargo run --bin bitstable-cli -- vault create \
   --stable-amount 15000 \
   --owner YOUR_PUBKEY
 
+# Fund the vault's escrow contract
+cargo run --bin bitstable-cli -- vault fund VAULT_ID \
+  --txid FUNDING_TXID \
+  --vout 0 \
+  --amount 0.2
+
+# Check escrow contract details
+cargo run --bin bitstable-cli -- vault escrow VAULT_ID
+
 # List all vaults
 cargo run --bin bitstable-cli -- vault list
 
 # Scan for liquidation opportunities
 cargo run --bin bitstable-cli -- liquidate scan
+
+# Check custody system status
+cargo run --bin bitstable-cli -- custody stats
 ```
 
 ### Running Network Nodes
@@ -81,13 +94,23 @@ cargo run --bin liquidator-bot \
 - **Liquidation Threshold**: 110%
 - **Stability Fee**: 2% APR
 
+### Bitcoin Custody System
+- **Multisig Escrow**: 2-of-3 signatures required (vault owner + protocol)
+- **P2WSH Addresses**: SegWit-native multisig for efficiency
+- **Trustless Settlements**: Bitcoin transactions enforce liquidations
+- **SIGHASH_ALL**: Proper transaction signing for security
+
 ### Oracle Network
 - **Threshold Consensus**: 3 of 5 oracles must agree
 - **Price Sources**: Coinbase, Binance, Kraken, Bitstamp, CoinGecko
+- **Cryptographic Signatures**: ECDSA signatures on price data
+- **Threshold Signatures**: Aggregated signatures for consensus
 - **Update Frequency**: 30 seconds
 
 ### Liquidation Engine
+- **On-Chain Settlement**: Bitcoin transactions execute liquidations
 - **Liquidation Bonus**: 5% of debt value
+- **Protocol Fees**: 1% of liquidated amount
 - **Permissionless**: Anyone can liquidate
 - **Immediate**: No waiting periods
 
@@ -108,7 +131,8 @@ cargo run --bin bitstable-cli -- vault create \
 # ✅ Created vault: fd559ae2e790b87f...
 # Collateral: 0.2 BTC
 # Stable debt: $15000
-# Collateral ratio: 159.49%
+# 🔐 Escrow Address: bc1qwqdg6squsna38e46795at95yu9atm8azzmyvckulcc7kytlcckxswvvzej
+# Send 0.2 BTC to this address to fund the vault
 ```
 
 ## Risk Management
@@ -134,6 +158,12 @@ cargo run --bin bitstable-cli -- liquidate stats
 
 # Monitor vault health
 cargo run --bin bitstable-cli -- vault list --liquidatable
+
+# Check custody system health
+cargo run --bin bitstable-cli -- custody contracts
+
+# Monitor Bitcoin settlements
+cargo run --bin bitstable-cli -- custody settlements
 ```
 
 ## Configuration
@@ -151,9 +181,10 @@ stability_fee_apr = 0.02
 ## Security
 
 - **No Admin Keys**: Protocol is fully decentralized
-- **Oracle Security**: Requires 3 of 5 oracles for price consensus
+- **Bitcoin Custody**: Trustless multisig escrow with on-chain settlements
+- **Oracle Security**: Cryptographic signatures and threshold consensus
 - **Liquidation Incentives**: Market forces maintain system health
-- **Open Source**: All code is auditable
+- **Open Source**: All code is auditable and public domain
 
 ## Comparison with Other Stablecoins
 
@@ -167,20 +198,31 @@ stability_fee_apr = 0.02
 
 ## Technical Details
 
+### Bitcoin Custody System
+- **Multisig Escrow Contracts**: 2-of-3 signatures (vault owner + protocol keys)
+- **P2WSH Addresses**: Native SegWit for lower fees and better scaling
+- **Trustless Liquidation Settlement**: Bitcoin transactions enforce liquidations
+- **UTXO Management**: Efficient tracking of collateral and settlements
+
 ### Collateral Management
 - Dynamic collateral ratios based on market conditions
-- Automatic liquidation below threshold
+- Automatic liquidation below threshold through Bitcoin transactions
 - No governance required for parameter updates
+- Real Bitcoin custody with cryptographic guarantees
 
-### Price Oracle
-- Multiple independent data sources
-- Median price calculation for consensus
-- Circuit breakers for extreme price movements
+### Price Oracle System
+- **Cryptographic Signatures**: Each oracle signs price data with ECDSA
+- **Threshold Signatures**: Aggregated signatures prove consensus
+- **Multiple Data Sources**: Coinbase, Binance, Kraken, Bitstamp, CoinGecko
+- **Median Price Calculation**: Robust against outliers and manipulation
+- **Signature Verification**: All price data is cryptographically verified
 
 ### Liquidation Mechanics
-- First-come-first-served liquidation queue
-- Profit incentives align liquidator behavior
-- No time delays or auction periods
+- **On-Chain Settlement**: Bitcoin transactions execute liquidations
+- **First-come-first-served**: No auction delays or governance intervention
+- **Cryptographic Enforcement**: Multisig contracts ensure trustless execution
+- **Profit incentives**: 5% bonus aligns liquidator behavior with system health
+- **No time delays**: Immediate liquidation when threshold is breached
 
 ## Development
 
@@ -198,7 +240,8 @@ cargo run --bin bitstable-cli -- help
 
 ## License
 
-MIT OR Apache-2.0
+This software is released into the public domain under The Unlicense.
+See UNLICENSE file for details.
 
 ## Support
 
