@@ -204,10 +204,10 @@ async fn run_liquidation_scan(
         
         if !dry_run {
             match protocol.liquidate_vault(vault_id, bot.liquidator_key).await {
-                Ok(()) => {
+                Ok(txid) => {
                     successful_liquidations += 1;
                     total_profit += expected_profit;
-                    log::info!("Successfully liquidated vault {}", vault_id);
+                    log::info!("Successfully liquidated vault {} in transaction {}", vault_id, txid);
                 }
                 Err(e) => {
                     log::error!("Failed to liquidate vault {}: {}", vault_id, e);

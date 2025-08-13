@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Steven Geller"]
 description = "A decentralized stable value protocol on Bitcoin using DLCs and market-based liquidations"
-license = "MIT OR Apache-2.0"
+license = "Unlicense"
 repository = "https://github.com/StevenGeller/bitstable"
 
 [[bin]]
@@ -20,8 +20,9 @@ name = "liquidator-bot"
 path = "src/bin/liquidator.rs"
 
 [dependencies]
-# Bitcoin with serde support
-bitcoin = { version = "0.32", features = ["serde"] }
+# Bitcoin with serde support and RPC
+bitcoin = { version = "0.32", features = ["serde", "rand"] }
+bitcoincore-rpc = "0.19"
 
 # Networking and async
 tokio = { version = "1.0", features = ["full"] }
@@ -54,6 +55,9 @@ rand = "0.8"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
+
+# Hex encoding
+hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3.0"

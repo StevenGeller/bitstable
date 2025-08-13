@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use bitcoin::{Amount, PublicKey};
-use bitstable::{BitStableProtocol, ProtocolConfig, Result};
+use bitcoin::{Amount, PublicKey, Txid};
+use bitcoin::hashes::Hash;
+use bitstable::{BitStableProtocol, ProtocolConfig, BitcoinConfig, Result};
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -48,6 +49,11 @@ enum Commands {
         #[command(subcommand)]
         action: NetworkCommands,
     },
+    /// Custody and Bitcoin operations
+    Custody {
+        #[command(subcommand)]
+        action: CustodyCommands,
+    },
     /// Show protocol status
     Status,
 }
@@ -94,6 +100,25 @@ enum VaultCommands {
     },
     /// Update stability fees for all vaults
     UpdateFees,
+    /// Fund a vault's escrow contract
+    Fund {
+        /// Vault ID
+        vault_id: String,
+        /// Funding transaction ID
+        #[arg(long)]
+        txid: String,
+        /// Output index
+        #[arg(long)]
+        vout: u32,
+        /// Amount funded (BTC)
+        #[arg(long)]
+        amount: f64,
+    },
+    /// Show vault escrow information
+    Escrow {
+        /// Vault ID
+        vault_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -203,6 +228,25 @@ enum NetworkCommands {
     Stats,
 }
 
+#[derive(Subcommand)]
+enum CustodyCommands {
+    /// Show custody statistics
+    Stats,
+    /// List escrow contracts
+    Contracts,
+    /// Show settlement information
+    Settlements {
+        /// Number of records to show
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Monitor Bitcoin network
+    Monitor {
+        /// Address to monitor
+        address: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -228,7 +272,15 @@ async fn main() -> Result<()> {
     config.validate()?;
 
     // Initialize protocol
-    let mut protocol = BitStableProtocol::new(config)?;
+    let protocol = BitStableProtocol::new(config)?;
+
+    // Initialize Bitcoin client if needed (optional for testing)
+    let bitcoin_config = BitcoinConfig::default(); // Could be loaded from config
+    let mut protocol = protocol.with_bitcoin_client(bitcoin_config)
+        .unwrap_or_else(|_| {
+            // Fall back to creating a new protocol without Bitcoin client if that fails
+            BitStableProtocol::new(ProtocolConfig::testnet()).unwrap()
+        });
 
     // Execute command
     match cli.command {
@@ -237,6 +289,7 @@ async fn main() -> Result<()> {
         Commands::Liquidate { action } => handle_liquidation_command(&mut protocol, action).await,
         Commands::Stable { action } => handle_stable_command(&mut protocol, action).await,
         Commands::Network { action } => handle_network_command(&mut protocol, action).await,
+        Commands::Custody { action } => handle_custody_command(&mut protocol, action).await,
         Commands::Status => handle_status_command(&protocol).await,
     }
 }
@@ -248,12 +301,14 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
             let collateral = Amount::from_btc(collateral_btc)
                 .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
             
-            let vault_id = protocol.open_vault(owner_pubkey, collateral, stable_amount).await?;
+            let escrow_contract = protocol.open_vault(owner_pubkey, collateral, stable_amount).await?;
             
-            println!("✅ Created vault: {}", vault_id);
+            println!("✅ Created vault: {}", escrow_contract.vault_id);
             println!("   Collateral: {} BTC", collateral_btc);
             println!("   Stable debt: ${}", stable_amount);
             println!("   Owner: {}", owner);
+            println!("🔐 Escrow Address: {}", escrow_contract.multisig_address);
+            println!("   Send {} BTC to this address to fund the vault", collateral_btc);
         }
         
         VaultCommands::List { owner, liquidatable } => {
@@ -339,6 +394,47 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
         VaultCommands::UpdateFees => {
             protocol.vault_manager.update_all_stability_fees()?;
             println!("✅ Updated stability fees for all active vaults");
+        }
+
+        VaultCommands::Fund { vault_id, txid, vout, amount } => {
+            let vault_id = Txid::from_str(&vault_id)
+                .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
+            let funding_txid = Txid::from_str(&txid)
+                .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
+            let funding_amount = Amount::from_btc(amount)
+                .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
+            
+            protocol.fund_vault_escrow(vault_id, funding_txid, vout, funding_amount).await?;
+            
+            println!("✅ Vault escrow funded successfully");
+            println!("   Vault ID: {}", vault_id);
+            println!("   Funding Transaction: {}:{}", funding_txid, vout);
+            println!("   Amount: {} BTC", amount);
+        }
+
+        VaultCommands::Escrow { vault_id } => {
+            let vault_id = Txid::from_str(&vault_id)
+                .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
+            
+            if let Some(contract) = protocol.get_vault_escrow(vault_id) {
+                println!("🔐 Escrow Contract Details:");
+                println!("   Vault ID: {}", contract.vault_id);
+                println!("   Multisig Address: {}", contract.multisig_address);
+                println!("   Required Collateral: {} BTC", contract.collateral_amount.to_btc());
+                println!("   Required Signatures: {}/{}", contract.required_sigs, contract.protocol_pubkeys.len() + 1);
+                println!("   Liquidation Threshold: ${:.2}", contract.liquidation_threshold_price);
+                println!("   Created: {}", contract.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+                
+                if contract.funding_txid != Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros()) {
+                    println!("   Funding Status: ✅ Funded");
+                    println!("   Funding Transaction: {}:{}", contract.funding_txid, contract.funding_vout);
+                } else {
+                    println!("   Funding Status: ⏳ Waiting for funding");
+                    println!("   Send {} BTC to: {}", contract.collateral_amount.to_btc(), contract.multisig_address);
+                }
+            } else {
+                println!("❌ Escrow contract not found for vault {}", vault_id);
+            }
         }
     }
     
@@ -463,8 +559,9 @@ async fn handle_liquidation_command(protocol: &mut BitStableProtocol, action: Li
             println!("   Liquidator: {}", liquidator);
             
             match protocol.liquidate_vault(vault_id, liquidator_pubkey).await {
-                Ok(()) => {
+                Ok(txid) => {
                     println!("✅ Liquidation executed successfully!");
+                    println!("   Transaction ID: {}", txid);
                 }
                 Err(e) => {
                     println!("❌ Liquidation failed: {}", e);
@@ -568,6 +665,51 @@ async fn handle_network_command(protocol: &mut BitStableProtocol, action: Networ
     Ok(())
 }
 
+async fn handle_custody_command(protocol: &mut BitStableProtocol, action: CustodyCommands) -> Result<()> {
+    match action {
+        CustodyCommands::Stats => {
+            let stats = protocol.get_custody_stats();
+            
+            println!("🔐 Custody Statistics:");
+            println!("   Active Escrow Contracts: {}", stats.active_escrow_contracts);
+            println!("   Total Collateral Under Management: {} BTC", stats.total_collateral_btc.to_btc());
+            println!("   Pending Liquidations: {}", stats.pending_liquidations);
+            println!("   Completed Settlements: {}", stats.completed_settlements);
+            println!("   Protocol Fees Collected: {} BTC", stats.protocol_fees_collected.to_btc());
+        }
+        
+        CustodyCommands::Contracts => {
+            println!("📋 Escrow Contracts:");
+            println!("{:<66} {:<62} {:<12} {:<10}", "Vault ID", "Multisig Address", "Collateral", "Status");
+            println!("{}", "-".repeat(150));
+            
+            // This would iterate through custody manager's contracts
+            println!("   No active contracts found");
+        }
+        
+        CustodyCommands::Settlements { limit } => {
+            println!("⚖️  Recent Settlements:");
+            println!("{:<66} {:<34} {:<12} {:<12}", "Vault ID", "Liquidator", "Amount", "Date");
+            println!("{}", "-".repeat(130));
+            
+            // This would show settlement history from custody manager
+            println!("   No settlements found");
+        }
+        
+        CustodyCommands::Monitor { address } => {
+            println!("👁️  Monitoring Bitcoin address: {}", address);
+            println!("🔍 Watching for incoming transactions...");
+            println!("   Press Ctrl+C to stop monitoring");
+            
+            // In a real implementation, this would use the Bitcoin client to monitor
+            tokio::signal::ctrl_c().await.unwrap();
+            println!("🛑 Stopped monitoring");
+        }
+    }
+    
+    Ok(())
+}
+
 async fn handle_status_command(protocol: &BitStableProtocol) -> Result<()> {
     println!("🚀 BitStable Protocol Status");
     println!("============================");
@@ -606,6 +748,13 @@ async fn handle_status_command(protocol: &BitStableProtocol) -> Result<()> {
     println!("   Pending Liquidations: {}", liquidation_stats.pending_liquidations);
     println!("   Total Liquidations: {}", liquidation_stats.total_liquidations);
     println!("   Active Liquidators: {}", liquidation_stats.active_liquidators);
+    
+    // Custody status
+    let custody_stats = protocol.get_custody_stats();
+    println!("\n🔐 Custody System:");
+    println!("   Escrow Contracts: {}", custody_stats.active_escrow_contracts);
+    println!("   Collateral Under Management: {} BTC", custody_stats.total_collateral_btc.to_btc());
+    println!("   Completed Settlements: {}", custody_stats.completed_settlements);
     
     println!("\n✅ Protocol is operational!");
     

@@ -38,6 +38,9 @@ pub enum BitStableError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
+    #[error("Bitcoin RPC error: {0}")]
+    BitcoinRpcError(String),
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
