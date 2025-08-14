@@ -1,7 +1,5 @@
 use clap::Parser;
-use bitcoin::PublicKey;
 use bitstable::{ProtocolConfig, Result, oracle::OracleNetwork};
-use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 
 #[derive(Parser)]

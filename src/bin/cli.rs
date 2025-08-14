@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use bitcoin::{Amount, PublicKey, Txid};
 use bitcoin::hashes::Hash;
 use bitstable::{BitStableProtocol, ProtocolConfig, BitcoinConfig, Result};

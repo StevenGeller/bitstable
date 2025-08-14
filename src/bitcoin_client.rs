@@ -1,7 +1,6 @@
 use bitcoin::{Address, Amount, Network, Transaction, Txid, BlockHash};
-use bitcoincore_rpc::{Auth, Client, RpcApi, Error as RpcError};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use crate::{BitStableError, Result};
 
 /// Bitcoin network client for interacting with Bitcoin Core RPC
