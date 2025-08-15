@@ -19,8 +19,13 @@ async fn main() -> Result<()> {
     println!("");
     
     // Check if user wants to continue
-    println!("💡 Press Enter to continue with REAL Bitcoin testnet demo...");
-    print!("   Ready to spend testnet BTC? ");
+    println!("💡 This demo will perform REAL Bitcoin testnet operations!");
+    println!("   • Generate real Bitcoin addresses");
+    println!("   • Request real testnet BTC from faucets");  
+    println!("   • Create real multisig transactions");
+    println!("   • Broadcast transactions to Bitcoin testnet");
+    println!("");
+    print!("🤔 Ready to proceed with REAL Bitcoin operations? Press Enter to continue...");
     io::stdout().flush().unwrap();
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
@@ -73,7 +78,11 @@ async fn main() -> Result<()> {
     }
 
     println!();
-    sleep(Duration::from_secs(2)).await;
+    
+    print!("✋ Press Enter to continue to Step 2 (Generate Bitcoin Users)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 2: Generate real testnet users with addresses
     println!("👥 Step 2: Generating Real Bitcoin Testnet Users");
@@ -109,7 +118,11 @@ async fn main() -> Result<()> {
     println!("   Oracle Pubkey:  {}", oracle_pubkey);
     
     println!();
-    sleep(Duration::from_secs(2)).await;
+    
+    print!("✋ Press Enter to continue to Step 3 (Initialize BitStable Protocol)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 3: Initialize BitStable Protocol with Real Bitcoin
     println!("🏦 Step 3: Initialize BitStable Protocol with Real Bitcoin");
@@ -117,7 +130,7 @@ async fn main() -> Result<()> {
     
     let protocol_config = ProtocolConfig::testnet();
     let _protocol = BitStableProtocol::new(protocol_config.clone())?
-        .with_bitcoin_client(bitcoin_config)?;
+        .with_bitcoin_client(bitcoin_config.clone())?;
 
     // Connect custody manager to Bitcoin client
     let _custody_manager = CustodyManager::new(&protocol_config)?
@@ -129,7 +142,11 @@ async fn main() -> Result<()> {
     println!("✅ Custody manager connected to Bitcoin node");
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    
+    print!("✋ Press Enter to continue to Step 4 (Fetch Live Exchange Rates)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 4: Fetch Live Exchange Rates
     println!("💱 Step 4: Fetching Live Exchange Rates");
@@ -184,7 +201,11 @@ async fn main() -> Result<()> {
     println!("✅ Calculated GBP/USD rate: {:.4}", gbp_usd_rate);
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    
+    print!("✋ Press Enter to continue to Step 5 (Create Multisig Escrow)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 5: Create Real Bitcoin Escrow Contract
     println!("🔐 Step 5: Creating Real Bitcoin Multisig Escrow Contract");
@@ -205,13 +226,14 @@ async fn main() -> Result<()> {
     // For real Bitcoin, we need to create the escrow contract first
     // In production: 1) Create contract, 2) Fund escrow, 3) Verify funding, 4) Mint debt
     
-    // Generate real multisig escrow address using the custody manager
+    // Create REAL multisig escrow address using Bitcoin client
     let secp = Secp256k1::new();
     let oracle_pubkey = PublicKey::from_private_key(&secp, &oracle_privkey);
     let liquidator_pubkey = PublicKey::from_private_key(&secp, &liquidator_privkey);
     
-    // Create real multisig address (this would be done by custody manager)
-    let multisig_address = format!("tb1q{}...", &hex::encode(&alice_pubkey.to_bytes())[0..20]); // Simplified for demo
+    // Create a temporary Bitcoin client to generate the real multisig address
+    let temp_bitcoin_client = BitcoinClient::testnet(&bitcoin_config.rpc_url, &bitcoin_config.rpc_username, &bitcoin_config.rpc_password)?;
+    let (multisig_address, _multisig_script) = temp_bitcoin_client.create_escrow_multisig(alice_pubkey, oracle_pubkey, liquidator_pubkey)?;
     
     println!("🔑 Multisig: 2-of-3 (User + Oracle + Liquidator)");
     println!("👤 User Key: {}", alice_pubkey);
@@ -220,51 +242,138 @@ async fn main() -> Result<()> {
     println!("💰 Required Collateral: {} BTC", vault_collateral.to_btc());
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    
+    print!("✋ Press Enter to continue to Step 6 (Fund Escrow with Real Bitcoin)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
-    // Step 6: Request Testnet Funds from Faucet
-    println!("🚰 Step 6: Requesting Bitcoin Testnet Funds");
-    println!("-------------------------------------------");
-    
-    println!("💡 In a real implementation, this would:");
-    println!("   1. Request funds from Bitcoin testnet faucet");
-    println!("   2. Wait for funding transaction to confirm");
-    println!("   3. Build transaction to fund escrow address");
-    println!("   4. Broadcast funding transaction to testnet");
-    println!("");
-    println!("🎯 Target escrow address: {}", multisig_address);
-    println!("💸 Amount needed: {} BTC", vault_collateral.to_btc());
-    
-    // Simulate the funding process
-    println!("⚠️  SIMULATION: In production, you would:");
-    println!("   • Visit https://coinfaucet.eu/en/btc-testnet/");
-    println!("   • Send {} BTC to: {}", vault_collateral.to_btc(), multisig_address);
-    println!("   • Wait for 1+ confirmations");
-    
-    println!();
-    sleep(Duration::from_secs(4)).await;
-
-    // Step 7: Monitor for Funding (Simulation)
-    println!("👀 Step 7: Monitoring Escrow Address for Funding");
+    // Step 6: Request REAL Testnet Funds from Faucet
+    println!("🚰 Step 6: Requesting REAL Bitcoin Testnet Funds");
     println!("------------------------------------------------");
     
-    println!("🔍 Checking escrow address for funding...");
-    println!("   Address: {}", multisig_address);
-    println!("   Required: {} BTC", vault_collateral.to_btc());
+    println!("📋 We need to fund Alice's address first, then send to escrow:");
+    println!("   1️⃣  Alice Address: {}", alice_address);
+    println!("   2️⃣  Escrow Address: {}", multisig_address);
+    println!("   3️⃣  Amount needed: {} BTC", vault_collateral.to_btc());
+    println!("");
     
-    // In a real implementation, this would monitor the blockchain
-    println!("⏳ Waiting for funding transaction...");
-    sleep(Duration::from_secs(2)).await;
+    println!("🌐 REAL Bitcoin Testnet Faucets:");
+    println!("   • https://coinfaucet.eu/en/btc-testnet/");
+    println!("   • https://testnet-faucet.com/btc-testnet");
+    println!("   • https://bitcoinfaucet.uo1.net/");
+    println!("");
     
-    println!("📡 Monitoring Bitcoin testnet mempool and blockchain...");
-    sleep(Duration::from_secs(3)).await;
+    println!("📝 MANUAL STEP REQUIRED:");
+    println!("   1. Visit one of the faucets above");
+    println!("   2. Send testnet BTC to Alice's address: {}", alice_address);
+    println!("   3. Wait for confirmation (usually 1-10 minutes)");
+    println!("");
     
-    // Simulate funding detection
-    println!("💰 SIMULATION: Escrow funding detected!");
-    println!("✅ Found {} BTC in escrow address", vault_collateral.to_btc());
+    print!("💰 After funding Alice's address, press Enter to continue...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    // Step 7: Check Alice's Balance and Build Real Transaction
+    println!("👀 Step 7: Checking Alice's Balance and Building Real Transaction");
+    println!("----------------------------------------------------------------");
+    
+    println!("🔍 Checking Alice's address for UTXOs...");
+    println!("   Address: {}", alice_address);
+    
+    // Check Alice's real UTXOs
+    let alice_utxos = temp_bitcoin_client.get_utxos(&alice_address)?;
+    let total_balance: u64 = alice_utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
+    let total_balance_btc = total_balance as f64 / 100_000_000.0;
+    
+    println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, alice_utxos.len());
+    
+    if alice_utxos.is_empty() {
+        println!("❌ No UTXOs found! Please fund Alice's address first.");
+        println!("   Address: {}", alice_address);
+        return Ok(());
+    }
+    
+    if total_balance_btc < vault_collateral.to_btc() {
+        println!("⚠️  Insufficient balance. Need {} BTC but only have {} BTC", 
+                vault_collateral.to_btc(), total_balance_btc);
+        println!("💡 Please send more testnet BTC to: {}", alice_address);
+        return Ok(());
+    }
+    
+    println!("✅ Sufficient balance found!");
+    println!("📦 UTXOs available:");
+    for (i, utxo) in alice_utxos.iter().enumerate() {
+        println!("   UTXO {}: {} BTC ({}:{})", i+1, utxo.amount.to_btc(), utxo.txid, utxo.vout);
+    }
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    print!("🔨 Press Enter to build and broadcast real transaction to escrow...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    
+    // Build REAL transaction to fund escrow
+    println!("🔨 Building REAL Bitcoin transaction...");
+    let fee_rate = 1.0; // 1 sat/vB
+    
+    match temp_bitcoin_client.build_funding_transaction(
+        alice_utxos,
+        &alice_privkey,
+        &multisig_address,
+        vault_collateral,
+        fee_rate
+    ) {
+        Ok(funding_tx) => {
+            println!("✅ Transaction built successfully!");
+            println!("📡 Broadcasting to Bitcoin testnet...");
+            
+            match temp_bitcoin_client.broadcast_transaction(&funding_tx) {
+                Ok(txid) => {
+                    println!("🎉 SUCCESS! Transaction broadcast to Bitcoin testnet!");
+                    println!("🔗 Transaction ID: {}", txid);
+                    println!("🌐 View on explorer: https://mempool.space/testnet/tx/{}", txid);
+                    println!("💰 Sent {} BTC to escrow address: {}", vault_collateral.to_btc(), multisig_address);
+                    
+                    println!();
+                    print!("⏳ Press Enter to wait for confirmation...");
+                    io::stdout().flush().unwrap();
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).unwrap();
+                    
+                    println!("⏳ Waiting for transaction confirmation...");
+                    match temp_bitcoin_client.wait_for_confirmation(txid, 1, 300).await {
+                        Ok(true) => {
+                            println!("✅ Transaction confirmed! Escrow is now funded with real Bitcoin.");
+                        }
+                        Ok(false) => {
+                            println!("⚠️  Transaction not confirmed yet (timeout). Check explorer for status.");
+                        }
+                        Err(e) => {
+                            println!("❌ Error checking confirmation: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("❌ Failed to broadcast transaction: {}", e);
+                    println!("💡 Check if Bitcoin Core is synced and RPC is working");
+                    return Ok(());
+                }
+            }
+        }
+        Err(e) => {
+            println!("❌ Failed to build transaction: {}", e);
+            return Ok(());
+        }
+    }
+    
+    println!();
+    
+    print!("✋ Press Enter to continue to Step 8 (Demonstrate Liquidation Process)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 8: Real Liquidation Demonstration
     println!("⚡ Step 8: Real Bitcoin Liquidation Process");
@@ -297,7 +406,11 @@ async fn main() -> Result<()> {
     println!("✅ Liquidation transaction would be broadcast to Bitcoin testnet");
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    
+    print!("✋ Press Enter to continue to Step 9 (System Health Check)...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Step 9: System Health and Statistics
     println!("📊 Step 9: Real Bitcoin Integration Health Check");
@@ -317,7 +430,11 @@ async fn main() -> Result<()> {
     println!("   ✅ Bitcoin testnet integration");
     
     println!();
-    sleep(Duration::from_secs(3)).await;
+    
+    print!("🎉 Press Enter to see final summary...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 
     // Final Summary
     println!("🎉 REAL BITCOIN TESTNET DEMO COMPLETE!");
