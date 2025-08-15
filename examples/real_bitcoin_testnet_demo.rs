@@ -269,66 +269,82 @@ async fn main() -> Result<()> {
     println!("   3. Wait for confirmation (usually 1-10 minutes)");
     println!("");
     
-    print!("💰 After funding Alice's address, press Enter to continue...");
+    println!("💰 After requesting from faucet, the demo will automatically monitor for incoming Bitcoin...");
+    println!("");
+    
+    print!("🔍 Press Enter to start automatic monitoring for incoming Bitcoin...");
     io::stdout().flush().unwrap();
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
 
-    // Step 7: Check Alice's Balance and Build Real Transaction
-    println!("👀 Step 7: Checking Alice's Balance and Building Real Transaction");
-    println!("----------------------------------------------------------------");
+    // Step 7: Auto-Monitor for Funding and Build Real Transaction
+    println!("👀 Step 7: Auto-Monitoring Alice's Address for Incoming Bitcoin");
+    println!("---------------------------------------------------------------");
     
-    println!("🔍 Checking Alice's address for UTXOs...");
+    println!("🔍 Starting automatic monitoring for Alice's address...");
     println!("   Address: {}", alice_address);
+    println!("   Required: {} BTC", vault_collateral.to_btc());
+    println!("   Checking every 10 seconds...");
+    println!("");
+    println!("💡 While waiting, you can:");
+    println!("   1. Visit https://coinfaucet.eu/en/btc-testnet/");
+    println!("   2. Enter Alice's address: {}", alice_address);
+    println!("   3. Complete captcha and request testnet BTC");
+    println!("");
     
-    // Check Alice's real UTXOs
-    let alice_utxos = match temp_bitcoin_client.get_utxos(&alice_address) {
-        Ok(utxos) => utxos,
-        Err(e) => {
-            println!("❌ Error checking UTXOs: {}", e);
-            println!("💡 This might be because:");
-            println!("   • Alice's address hasn't been funded yet");
-            println!("   • Bitcoin Core wallet not loaded (try: bitcoin-cli -testnet createwallet demo)");
-            println!("   • Address not in wallet (this is normal for external addresses)");
-            println!("");
-            // Return empty UTXOs but continue to show the funding instructions
-            Vec::new()
+    // Auto-monitoring loop - check every 10 seconds
+    let mut check_count = 0;
+    let alice_utxos = loop {
+        check_count += 1;
+        println!("🔄 Check #{}: Scanning for UTXOs...", check_count);
+        
+        // Check Alice's real UTXOs
+        match temp_bitcoin_client.get_utxos(&alice_address) {
+            Ok(utxos) => {
+                let total_balance: u64 = utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
+                let total_balance_btc = total_balance as f64 / 100_000_000.0;
+                
+                println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, utxos.len());
+                
+                if !utxos.is_empty() {
+                    println!("🎉 SUCCESS! Funding detected!");
+                    println!("📦 UTXOs found:");
+                    for (i, utxo) in utxos.iter().enumerate() {
+                        println!("   UTXO {}: {} BTC ({}:{})", i+1, utxo.amount.to_btc(), utxo.txid, utxo.vout);
+                    }
+                    
+                    if total_balance_btc >= vault_collateral.to_btc() {
+                        println!("✅ Sufficient balance found! Proceeding with transaction building...");
+                        break utxos;
+                    } else {
+                        println!("⚠️  Insufficient balance. Need {} BTC but only have {} BTC", 
+                                vault_collateral.to_btc(), total_balance_btc);
+                        println!("💡 Please send more testnet BTC to: {}", alice_address);
+                        println!("🔄 Continuing to monitor...");
+                    }
+                } else {
+                    println!("⏳ No UTXOs found yet. Still waiting for funding...");
+                    if check_count == 1 {
+                        println!("💡 Faucet URLs while you wait:");
+                        println!("   • https://coinfaucet.eu/en/btc-testnet/");
+                        println!("   • https://testnet-faucet.com/btc-testnet");
+                        println!("   • https://bitcoinfaucet.uo1.net/");
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Error checking UTXOs: {}", e);
+                println!("🔄 Retrying in 10 seconds...");
+            }
         }
+        
+        println!("⏰ Waiting 10 seconds before next check...");
+        sleep(Duration::from_secs(10)).await;
+        println!();
     };
-    let total_balance: u64 = alice_utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
-    let total_balance_btc = total_balance as f64 / 100_000_000.0;
     
-    println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, alice_utxos.len());
-    
-    if alice_utxos.is_empty() {
-        println!("❌ No UTXOs found! Alice's address needs funding.");
-        println!("   Address: {}", alice_address);
-        println!("");
-        println!("📋 To fund Alice's address:");
-        println!("   1. Visit https://coinfaucet.eu/en/btc-testnet/");
-        println!("   2. Enter Alice's address: {}", alice_address);
-        println!("   3. Complete captcha and request testnet BTC");
-        println!("   4. Wait 1-10 minutes for confirmation");
-        println!("   5. Re-run the demo");
-        println!("");
-        println!("🌐 Alternative faucets:");
-        println!("   • https://testnet-faucet.com/btc-testnet");
-        println!("   • https://bitcoinfaucet.uo1.net/");
-        return Ok(());
-    }
-    
-    if total_balance_btc < vault_collateral.to_btc() {
-        println!("⚠️  Insufficient balance. Need {} BTC but only have {} BTC", 
-                vault_collateral.to_btc(), total_balance_btc);
-        println!("💡 Please send more testnet BTC to: {}", alice_address);
-        return Ok(());
-    }
-    
-    println!("✅ Sufficient balance found!");
-    println!("📦 UTXOs available:");
-    for (i, utxo) in alice_utxos.iter().enumerate() {
-        println!("   UTXO {}: {} BTC ({}:{})", i+1, utxo.amount.to_btc(), utxo.txid, utxo.vout);
-    }
+    // At this point we have sufficient balance
+    println!("");
     
     println!();
     print!("🔨 Press Enter to build and broadcast real transaction to escrow...");
