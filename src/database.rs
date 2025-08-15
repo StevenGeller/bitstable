@@ -4,7 +4,7 @@
 use sled::{Db, Tree};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bitcoin::{Txid, PublicKey, Amount};
-use crate::{BitStableError, Result, Vault, VaultState, Currency};
+use crate::{BitStableError, Result, Vault};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 

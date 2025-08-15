@@ -118,7 +118,10 @@ impl Vault {
         
         for (currency, debt_amount) in self.debts.debts.iter() {
             if let Some(config) = currency_configs.get(currency) {
-                let fee = debt_amount * config.stability_fee_apr * years;
+                // Apply compound interest as per whitepaper: D(t + Δ) = D(t) · (1 + α · Δ/365.25)
+                let growth_factor = 1.0 + config.stability_fee_apr * years;
+                let new_debt = debt_amount * growth_factor;
+                let fee = new_debt - debt_amount;
                 new_debts.add_debt(currency.clone(), fee)?;
             }
         }
@@ -153,7 +156,7 @@ impl Vault {
 #[derive(Debug)]
 pub struct VaultManager {
     vaults: HashMap<Txid, Vault>,
-    config: ProtocolConfig,
+    _config: ProtocolConfig,
     currency_configs: HashMap<Currency, CurrencyConfig>,
     exchange_rates: ExchangeRates,
     db: sled::Db,
@@ -169,7 +172,7 @@ impl VaultManager {
         
         let mut manager = Self {
             vaults: HashMap::new(),
-            config: config.clone(),
+            _config: config.clone(),
             currency_configs,
             exchange_rates: ExchangeRates::new(),
             db,

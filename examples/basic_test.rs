@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Stability controller created for {} USD", controller.target_amount);
     
     // Test rebalance calculation
-    let action = controller.calculate_rebalance(800.0, 1.0, &exchange_rates);
+    let action = controller.calculate_rebalance(800.0, 1.0, &exchange_rates, 2.0, 1.5);
     println!("✓ Rebalance calculation complete: {:?}", action);
     
     println!("\n🎉 Basic functionality test completed successfully!");

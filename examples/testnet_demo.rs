@@ -1,6 +1,6 @@
 use bitstable::{
     BitStableProtocol, ProtocolConfig, Currency, ExchangeRates, 
-    StabilityController, RebalanceAction, VaultManager
+    StabilityController, VaultManager
 };
 use bitcoin::{Amount, PublicKey, Network};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Liquidation Threshold: {:.1}%", config.liquidation_threshold * 100.0);
     println!("   ✓ Database: {}", config.database_path);
 
-    let protocol = BitStableProtocol::new(config)?;
+    let _protocol = BitStableProtocol::new(config)?;
     println!("   ✓ Protocol initialized successfully");
 
     // Test 2: Generate Test Users
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     
     for (balance, description) in scenarios {
-        let action = controller_fixed.calculate_rebalance(balance, 1.0, &exchange_rates);
+        let action = controller_fixed.calculate_rebalance(balance, 1.0, &exchange_rates, 2.0, 1.5);
         println!("     • {} (${:.0}): {:?}", description, balance, action);
     }
     
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     
     for (btc_amount, eur_stable, description) in portfolio_scenarios {
-        let action = controller_percent.calculate_rebalance(eur_stable, btc_amount, &exchange_rates);
+        let action = controller_percent.calculate_rebalance(eur_stable, btc_amount, &exchange_rates, 2.0, 1.5);
         let btc_value = btc_amount * exchange_rates.get_btc_price(&Currency::EUR).unwrap_or(0.0);
         let total_value = btc_value + eur_stable;
         let target_stable = total_value * 0.30;
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 5: Vault Manager (Basic Operations)
     println!("\n5. Testing Vault Management...");
     let vault_config = ProtocolConfig::testnet();
-    let mut vault_manager = VaultManager::new(&vault_config)?;
+    let mut _vault_manager = VaultManager::new(&vault_config)?;
     println!("   ✓ Vault Manager initialized");
     
     // Simulate vault creation (without Bitcoin client)

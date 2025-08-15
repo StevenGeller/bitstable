@@ -169,7 +169,7 @@ impl MultiCurrencyStableManager {
                 for value in values {
                     if let Some(vault) = vaults.get(&value.backed_by_vault) {
                         let vault_collateral_usd = vault.collateral_btc.to_btc() * btc_price_usd;
-                        let vault_debt_usd = vault.debts.total_debt_in_usd(exchange_rates);
+                        let _vault_debt_usd = vault.debts.total_debt_in_usd(exchange_rates);
                         
                         // Proportional allocation based on this position's share
                         let position_ratio = value.amount / vault.debts.get_debt(currency);

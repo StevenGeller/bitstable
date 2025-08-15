@@ -9,7 +9,7 @@ use bitcoin::opcodes::all::{OP_CHECKMULTISIG, OP_PUSHNUM_2, OP_PUSHNUM_3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-use crate::{BitStableError, Result, ProtocolConfig};
+use crate::{BitStableError, Result, ProtocolConfig, BitcoinClient};
 
 /// Bitcoin custody manager that handles trustless collateral locking and liquidation settlements
 #[derive(Debug)]
@@ -20,6 +20,8 @@ pub struct CustodyManager {
     // Protocol keys for multisig
     protocol_keys: Vec<PublicKey>,
     protocol_privkey: Option<PrivateKey>,
+    oracle_privkey: Option<PrivateKey>,
+    liquidator_privkey: Option<PrivateKey>,
     
     // Active escrow contracts
     escrow_contracts: HashMap<Txid, EscrowContract>,
@@ -29,6 +31,9 @@ pub struct CustodyManager {
     
     // Liquidation settlements
     settlements: HashMap<Txid, LiquidationSettlement>,
+    
+    // Bitcoin client for real on-chain operations
+    bitcoin_client: Option<BitcoinClient>,
 }
 
 /// Represents a multisig escrow contract for vault collateral
@@ -115,15 +120,36 @@ impl CustodyManager {
             network,
             protocol_keys,
             protocol_privkey: None,
+            oracle_privkey: None,
+            liquidator_privkey: None,
             escrow_contracts: HashMap::new(),
             pending_txs: HashMap::new(),
             settlements: HashMap::new(),
+            bitcoin_client: None,
         })
     }
 
     /// Initialize with a protocol private key for signing
     pub fn with_protocol_key(mut self, privkey: PrivateKey) -> Self {
         self.protocol_privkey = Some(privkey);
+        self
+    }
+
+    /// Connect to a real Bitcoin client for on-chain operations
+    pub fn with_bitcoin_client(mut self, bitcoin_client: BitcoinClient) -> Self {
+        self.bitcoin_client = Some(bitcoin_client);
+        self
+    }
+
+    /// Set oracle private key for liquidation signing
+    pub fn with_oracle_key(mut self, oracle_privkey: PrivateKey) -> Self {
+        self.oracle_privkey = Some(oracle_privkey);
+        self
+    }
+
+    /// Set liquidator private key for liquidation signing
+    pub fn with_liquidator_key(mut self, liquidator_privkey: PrivateKey) -> Self {
+        self.liquidator_privkey = Some(liquidator_privkey);
         self
     }
 
@@ -141,7 +167,7 @@ impl CustodyManager {
         Ok(keys)
     }
 
-    /// Create a new vault escrow contract
+    /// Create a new vault escrow contract with real Bitcoin multisig address
     pub fn create_vault_escrow(
         &mut self,
         vault_id: Txid,
@@ -149,12 +175,23 @@ impl CustodyManager {
         collateral_amount: Amount,
         liquidation_price: f64,
     ) -> Result<EscrowContract> {
-        // Create 2-of-3 multisig: vault owner + 2 protocol keys
-        let mut script_pubkeys = vec![owner_pubkey];
-        script_pubkeys.extend_from_slice(&self.protocol_keys[0..2]);
-        
-        let redeem_script = self.create_multisig_script(&script_pubkeys, 2)?;
-        let multisig_address = Address::p2wsh(&redeem_script, self.network);
+        // Use the Bitcoin client to create a real 2-of-3 multisig escrow
+        let (multisig_address, redeem_script) = if let Some(bitcoin_client) = &self.bitcoin_client {
+            // Create 2-of-3 multisig: user + oracle + liquidator
+            bitcoin_client.create_escrow_multisig(
+                owner_pubkey,
+                self.protocol_keys[0], // Oracle key
+                self.protocol_keys[1], // Liquidator key
+            )?
+        } else {
+            // Fallback to local creation (for testing without Bitcoin client)
+            let mut script_pubkeys = vec![owner_pubkey];
+            script_pubkeys.extend_from_slice(&self.protocol_keys[0..2]);
+            
+            let redeem_script = self.create_multisig_script(&script_pubkeys, 2)?;
+            let multisig_address = Address::p2wsh(&redeem_script, self.network);
+            (multisig_address, redeem_script)
+        };
 
         let contract = EscrowContract {
             vault_id,
@@ -173,7 +210,7 @@ impl CustodyManager {
         self.escrow_contracts.insert(vault_id, contract.clone());
         
         log::info!(
-            "Created escrow contract for vault {} with address {}",
+            "Created real Bitcoin escrow contract for vault {} with address {}",
             vault_id,
             multisig_address
         );
@@ -534,6 +571,198 @@ impl CustodyManager {
                 .map(|s| s.protocol_fee)
                 .sum(),
         }
+    }
+
+    // ===============================================
+    // REAL BITCOIN TESTNET INTEGRATION METHODS
+    // ===============================================
+
+    /// Request testnet funds for a user and fund their escrow contract
+    pub async fn fund_escrow_from_testnet_faucet(
+        &mut self,
+        vault_id: Txid,
+        user_private_key: &PrivateKey,
+    ) -> Result<Txid> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        let contract = self.escrow_contracts.get(&vault_id)
+            .ok_or_else(|| BitStableError::InvalidConfig("Escrow contract not found".to_string()))?;
+
+        log::info!("🚰 Requesting testnet funds for vault {} escrow address: {}", vault_id, contract.multisig_address);
+
+        // Step 1: Generate a temporary address for receiving faucet funds
+        let (temp_address, temp_privkey) = bitcoin_client.generate_testnet_address()?;
+        
+        log::info!("📍 Generated temporary address for faucet: {}", temp_address);
+
+        // Step 2: Request funds from testnet faucet
+        match bitcoin_client.request_testnet_funds(&temp_address).await {
+            Ok(faucet_txid) => {
+                log::info!("✅ Faucet request successful: {}", faucet_txid);
+                
+                // Step 3: Wait for faucet transaction to confirm
+                let _confirmed = bitcoin_client.wait_for_confirmation(faucet_txid, 1, 600).await?;
+                log::info!("🎯 Faucet transaction confirmed");
+                
+                // Step 4: Get UTXOs from the faucet funding
+                let utxos = bitcoin_client.get_spendable_utxos(&temp_address, 1).await?;
+                if utxos.is_empty() {
+                    return Err(BitStableError::BitcoinRpcError("No spendable UTXOs found from faucet".to_string()));
+                }
+
+                // Step 5: Build funding transaction to escrow address
+                let network_stats = bitcoin_client.get_blockchain_info()?;
+                let funding_tx = bitcoin_client.build_funding_transaction(
+                    utxos,
+                    &temp_privkey,
+                    &contract.multisig_address,
+                    contract.collateral_amount,
+                    network_stats.estimated_fee_rate,
+                )?;
+
+                // Step 6: Broadcast funding transaction
+                let funding_txid = bitcoin_client.broadcast_transaction(&funding_tx)?;
+                log::info!("🚀 Funding transaction broadcast: {}", funding_txid);
+
+                // Step 7: Update escrow contract with funding info
+                self.process_vault_funding(vault_id, funding_txid, 0, contract.collateral_amount)?;
+
+                Ok(funding_txid)
+            }
+            Err(e) => {
+                log::error!("❌ Faucet request failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Execute real liquidation transaction on Bitcoin testnet
+    pub async fn execute_real_liquidation(
+        &mut self,
+        vault_id: Txid,
+        liquidator_address: &bitcoin::Address,
+        debt_amount: Amount,
+        bonus_amount: Amount,
+        user_return_address: &bitcoin::Address,
+    ) -> Result<Txid> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        let oracle_privkey = self.oracle_privkey.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Oracle private key not set".to_string()))?;
+
+        let liquidator_privkey = self.liquidator_privkey.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Liquidator private key not set".to_string()))?;
+
+        let contract = self.escrow_contracts.get(&vault_id)
+            .ok_or_else(|| BitStableError::InvalidConfig("Escrow contract not found".to_string()))?;
+
+        log::info!("⚡ Executing real liquidation for vault {} on Bitcoin testnet", vault_id);
+
+        // Create the escrow UTXO from the funding transaction
+        let escrow_utxo = crate::bitcoin_client::Utxo {
+            txid: contract.funding_txid,
+            vout: contract.funding_vout,
+            amount: contract.collateral_amount,
+            address: contract.multisig_address.clone(),
+            confirmations: 1, // Assume confirmed
+            spendable: true,
+        };
+
+        // Create and sign the liquidation transaction
+        let liquidation_tx = bitcoin_client.create_liquidation_transaction(
+            escrow_utxo,
+            &contract.redeem_script,
+            liquidator_address,
+            debt_amount,
+            bonus_amount,
+            user_return_address,
+            oracle_privkey,
+            liquidator_privkey,
+        )?;
+
+        // Broadcast the liquidation transaction
+        let liquidation_txid = bitcoin_client.broadcast_transaction(&liquidation_tx)?;
+        log::info!("🔥 Liquidation transaction broadcast: {}", liquidation_txid);
+
+        // Record the liquidation settlement
+        let settlement = LiquidationSettlement {
+            vault_id,
+            liquidator: bitcoin::PublicKey::from_private_key(&bitcoin::secp256k1::Secp256k1::new(), liquidator_privkey),
+            settlement_txid: liquidation_txid,
+            collateral_seized: debt_amount + bonus_amount,
+            liquidator_bonus: bonus_amount,
+            protocol_fee: Amount::ZERO, // No protocol fee in this simple implementation
+            settled_at: Utc::now(),
+        };
+
+        self.settlements.insert(vault_id, settlement);
+
+        // Remove the escrow contract as it's now settled
+        self.escrow_contracts.remove(&vault_id);
+
+        Ok(liquidation_txid)
+    }
+
+    /// Monitor escrow address for funding on the Bitcoin network
+    pub async fn monitor_escrow_funding(&self, vault_id: Txid) -> Result<Option<(Txid, u32, Amount)>> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        let contract = self.escrow_contracts.get(&vault_id)
+            .ok_or_else(|| BitStableError::InvalidConfig("Escrow contract not found".to_string()))?;
+
+        log::info!("👀 Monitoring escrow address {} for funding...", contract.multisig_address);
+
+        // Get UTXOs for the escrow address
+        let utxos = bitcoin_client.get_spendable_utxos(&contract.multisig_address, 1).await?;
+
+        for utxo in utxos {
+            if utxo.amount >= contract.collateral_amount {
+                log::info!(
+                    "💰 Found funding for vault {}: {} BTC in transaction {}:{}",
+                    vault_id,
+                    utxo.amount.to_btc(),
+                    utxo.txid,
+                    utxo.vout
+                );
+                return Ok(Some((utxo.txid, utxo.vout, utxo.amount)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Get real Bitcoin network statistics
+    pub fn get_bitcoin_network_info(&self) -> Result<crate::bitcoin_client::NetworkStats> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        bitcoin_client.get_blockchain_info()
+    }
+
+    /// Verify a transaction on the Bitcoin network
+    pub fn verify_transaction(&self, txid: Txid) -> Result<crate::bitcoin_client::TransactionInfo> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        bitcoin_client.get_transaction(txid)
+    }
+
+    /// Generate new Bitcoin testnet addresses for users
+    pub fn generate_user_addresses(&self, count: usize) -> Result<Vec<(bitcoin::Address, bitcoin::PrivateKey)>> {
+        let bitcoin_client = self.bitcoin_client.as_ref()
+            .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
+
+        let mut addresses = Vec::new();
+        for _ in 0..count {
+            let (address, privkey) = bitcoin_client.generate_testnet_address()?;
+            addresses.push((address, privkey));
+        }
+
+        log::info!("🔑 Generated {} new testnet addresses", count);
+        Ok(addresses)
     }
 }
 

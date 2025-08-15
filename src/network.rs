@@ -85,8 +85,8 @@ pub struct ConnectionPool {
 }
 
 pub struct Connection {
-    peer: PublicKey,
-    stream: Option<tokio::net::TcpStream>,
+    _peer: PublicKey,
+    _stream: Option<tokio::net::TcpStream>,
     last_activity: chrono::DateTime<chrono::Utc>,
     is_connected: bool,
 }
@@ -159,8 +159,8 @@ impl BitStableNetwork {
             .map_err(|e| BitStableError::InvalidConfig(format!("Connection failed: {}", e)))?;
 
         let connection = Connection {
-            peer: pubkey,
-            stream: Some(stream),
+            _peer: pubkey,
+            _stream: Some(stream),
             last_activity: chrono::Utc::now(),
             is_connected: true,
         };
@@ -174,7 +174,7 @@ impl BitStableNetwork {
         Ok(())
     }
 
-    async fn handle_incoming_connection(&mut self, stream: tokio::net::TcpStream) -> Result<()> {
+    async fn handle_incoming_connection(&mut self, _stream: tokio::net::TcpStream) -> Result<()> {
         // In a real implementation, this would:
         // 1. Perform handshake to identify peer
         // 2. Verify peer identity
@@ -186,7 +186,7 @@ impl BitStableNetwork {
     }
 
     pub async fn broadcast_message(&self, message: NetworkMessage) -> Result<()> {
-        let serialized = serde_json::to_vec(&message)?;
+        let _serialized = serde_json::to_vec(&message)?;
         
         for (peer_pubkey, connection) in &self.connection_pool.connections {
             if connection.is_connected && *peer_pubkey != self.local_pubkey {
@@ -256,8 +256,8 @@ impl BitStableNetwork {
         self.broadcast_message(message).await
     }
 
-    async fn send_peer_announcement(&self, target_peer: PublicKey) -> Result<()> {
-        let message = NetworkMessage {
+    async fn send_peer_announcement(&self, _target_peer: PublicKey) -> Result<()> {
+        let _message = NetworkMessage {
             message_type: MessageType::PeerAnnouncement,
             sender: self.local_pubkey,
             timestamp: chrono::Utc::now(),
@@ -269,7 +269,7 @@ impl BitStableNetwork {
         };
 
         // Send directly to specific peer instead of broadcasting
-        log::debug!("Sending peer announcement to {}", target_peer);
+        log::debug!("Sending peer announcement to {}", _target_peer);
         Ok(())
     }
 
@@ -300,7 +300,7 @@ impl BitStableNetwork {
         // - Response times
         // - Service quality
         
-        for (pubkey, peer) in &mut self.peers {
+        for (_pubkey, peer) in &mut self.peers {
             // Simple reputation decay
             peer.reputation_score *= 0.99;
             
@@ -343,7 +343,8 @@ impl BitStableNetwork {
         self.message_handlers.insert(message_type, Box::new(handler));
     }
 
-    async fn handle_message(&self, message: NetworkMessage) -> Result<()> {
+    #[allow(dead_code)]
+    async fn handle_message(&mut self, message: NetworkMessage) -> Result<()> {
         // Verify message signature if present
         if let Some(_signature) = &message.signature {
             // In a real implementation, verify the signature
@@ -355,8 +356,8 @@ impl BitStableNetwork {
         }
 
         // Update peer info
-        if let Some(peer) = self.peers.get(&message.sender) {
-            // Update last seen time
+        if let Some(peer) = self.peers.get_mut(&message.sender) {
+            peer.last_seen = chrono::Utc::now();
         }
 
         Ok(())

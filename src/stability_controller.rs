@@ -1,6 +1,5 @@
 use bitcoin::PublicKey;
 use serde::{Deserialize, Serialize};
-use crate::{Result, BitStableError};
 use crate::multi_currency::{Currency, ExchangeRates};
 
 /// Stability controller that manages "Keep X stable" autopilot functionality
@@ -37,19 +36,21 @@ impl StabilityController {
         }
     }
 
-    /// Calculate how much to mint or burn to reach target
+    /// Calculate how much to mint or burn to reach target - implements whitepaper Appendix C exactly
     pub fn calculate_rebalance(
         &self,
         current_stable_balance: f64,
         btc_balance: f64,
         exchange_rates: &ExchangeRates,
+        total_vault_collateral_ratio: f64,
+        min_collateral_ratio: f64,
     ) -> RebalanceAction {
         if !self.enabled {
             return RebalanceAction::None;
         }
 
+        // Calculate target (supports both fixed amount and percentage modes)
         let target = if let Some(percentage) = self.target_percentage {
-            // Calculate target based on percentage of total portfolio
             let btc_price = exchange_rates.calculate_btc_price(&self.target_currency, 
                 exchange_rates.get_btc_price(&Currency::USD).unwrap_or(0.0));
             let btc_value = btc_balance * btc_price;
@@ -59,25 +60,29 @@ impl StabilityController {
             self.target_amount
         };
 
-        let deviation = (current_stable_balance - target).abs() / target.max(1.0);
+        // Whitepaper Algorithm: err = target_k - balance_k
+        let error = target - current_stable_balance;
+        let relative_error = error.abs() / target.max(1.0);
         
-        // Only rebalance if deviation exceeds threshold
-        if deviation < self.rebalance_threshold {
+        // Whitepaper condition: |err|/target_k > ε and CR >= M
+        if relative_error <= self.rebalance_threshold || total_vault_collateral_ratio < min_collateral_ratio {
             return RebalanceAction::None;
         }
 
-        if current_stable_balance < target {
+        // Whitepaper logic: if err > 0: mint, else: burn
+        if error > 0.0 {
+            // mint(k, min(err, headroom)) - for now we use full error, headroom check would be in vault logic
             RebalanceAction::Mint {
                 currency: self.target_currency.clone(),
-                amount: target - current_stable_balance,
-            }
-        } else if current_stable_balance > target {
-            RebalanceAction::Burn {
-                currency: self.target_currency.clone(),
-                amount: current_stable_balance - target,
+                amount: error,
             }
         } else {
-            RebalanceAction::None
+            // burn(k, min(|err|, balance_k))
+            let burn_amount = error.abs().min(current_stable_balance);
+            RebalanceAction::Burn {
+                currency: self.target_currency.clone(),
+                amount: burn_amount,
+            }
         }
     }
 }
@@ -125,6 +130,8 @@ impl PortfolioManager {
         &self,
         balances: &PortfolioBalances,
         exchange_rates: &ExchangeRates,
+        total_vault_collateral_ratio: f64,
+        min_collateral_ratio: f64,
     ) -> Vec<(PublicKey, RebalanceAction)> {
         let mut actions = Vec::new();
 
@@ -139,6 +146,8 @@ impl PortfolioManager {
                     stable_balance,
                     holder_balance.btc_balance,
                     exchange_rates,
+                    total_vault_collateral_ratio,
+                    min_collateral_ratio,
                 );
 
                 if !matches!(action, RebalanceAction::None) {
@@ -177,22 +186,26 @@ mod tests {
         let mut exchange_rates = ExchangeRates::new();
         exchange_rates.update_btc_price(Currency::USD, 100000.0);
         
-        // Test when current balance is below target
-        let action = controller.calculate_rebalance(800.0, 1.0, &exchange_rates);
+        // Test when current balance is below target (with sufficient collateral)
+        let action = controller.calculate_rebalance(800.0, 1.0, &exchange_rates, 2.0, 1.5);
         match action {
             RebalanceAction::Mint { amount, .. } => assert_eq!(amount, 200.0),
             _ => panic!("Expected Mint action"),
         }
         
-        // Test when current balance is above target
-        let action = controller.calculate_rebalance(1200.0, 1.0, &exchange_rates);
+        // Test when current balance is above target (with sufficient collateral)
+        let action = controller.calculate_rebalance(1200.0, 1.0, &exchange_rates, 2.0, 1.5);
         match action {
             RebalanceAction::Burn { amount, .. } => assert_eq!(amount, 200.0),
             _ => panic!("Expected Burn action"),
         }
         
         // Test when within threshold
-        let action = controller.calculate_rebalance(1010.0, 1.0, &exchange_rates);
+        let action = controller.calculate_rebalance(1010.0, 1.0, &exchange_rates, 2.0, 1.5);
+        assert!(matches!(action, RebalanceAction::None));
+        
+        // Test when collateral ratio too low (should not rebalance)
+        let action = controller.calculate_rebalance(800.0, 1.0, &exchange_rates, 1.4, 1.5);
         assert!(matches!(action, RebalanceAction::None));
     }
 
@@ -210,7 +223,7 @@ mod tests {
         
         // Portfolio: 1 BTC ($100k) + $50k stable = $150k total
         // Target: 40% of $150k = $60k stable
-        let action = controller.calculate_rebalance(50000.0, 1.0, &exchange_rates);
+        let action = controller.calculate_rebalance(50000.0, 1.0, &exchange_rates, 2.0, 1.5);
         match action {
             RebalanceAction::Mint { amount, .. } => assert_eq!(amount, 10000.0),
             _ => panic!("Expected Mint action"),

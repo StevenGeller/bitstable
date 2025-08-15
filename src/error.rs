@@ -47,6 +47,9 @@ pub enum BitStableError {
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
 
+    #[error("Insufficient funds for transaction")]
+    InsufficientFunds,
+
     #[error("Vault already exists: {0}")]
     VaultAlreadyExists(bitcoin::Txid),
 

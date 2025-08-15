@@ -252,7 +252,7 @@ impl BitStableProtocol {
 
     /// Run stability controller rebalancing
     pub async fn run_stability_rebalancing(&mut self) -> Result<()> {
-        let exchange_rates = self.oracle_network.get_exchange_rates();
+        let _exchange_rates = self.oracle_network.get_exchange_rates();
         // This would need to be implemented with a collection of controllers
         let rebalances: Vec<(PublicKey, Vec<RebalanceAction>)> = Vec::new();
         

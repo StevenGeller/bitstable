@@ -3,8 +3,6 @@
 
 use bitcoin::secp256k1::{Secp256k1, SecretKey, PublicKey, Message};
 use bitcoin::secp256k1::ecdsa::Signature;
-use bitcoin::PrivateKey;
-use bitcoin::Network;
 use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
 use crate::{BitStableError, Result};
@@ -91,7 +89,7 @@ impl OracleKeyManager {
         
         // Create secp256k1 message
         let message = Message::from_digest_slice(&hash)
-            .map_err(|e| BitStableError::OracleSignatureVerificationFailed)?;
+            .map_err(|_e| BitStableError::OracleSignatureVerificationFailed)?;
         
         // Sign the message
         let signature = self.secp.sign_ecdsa(&message, &key_pair.private_key);
@@ -115,14 +113,14 @@ impl OracleKeyManager {
         let hash = hasher.finalize();
         
         let message = Message::from_digest_slice(&hash)
-            .map_err(|e| BitStableError::OracleSignatureVerificationFailed)?;
+            .map_err(|_e| BitStableError::OracleSignatureVerificationFailed)?;
         
         // Parse signature and public key
         let sig_bytes = hex::decode(&signature.signature)
             .map_err(|e| BitStableError::InvalidConfig(format!("Invalid signature hex: {}", e)))?;
         
         let sig = Signature::from_compact(&sig_bytes)
-            .map_err(|e| BitStableError::OracleSignatureVerificationFailed)?;
+            .map_err(|_e| BitStableError::OracleSignatureVerificationFailed)?;
         
         let pubkey_bytes = hex::decode(&signature.public_key)
             .map_err(|e| BitStableError::InvalidConfig(format!("Invalid public key hex: {}", e)))?;
@@ -160,7 +158,7 @@ pub struct OracleSignature {
 pub struct ThresholdSignatureScheme {
     threshold: usize,
     total_oracles: usize,
-    secp: Secp256k1<bitcoin::secp256k1::All>,
+    _secp: Secp256k1<bitcoin::secp256k1::All>,
 }
 
 impl ThresholdSignatureScheme {
@@ -175,7 +173,7 @@ impl ThresholdSignatureScheme {
         Ok(Self {
             threshold,
             total_oracles,
-            secp: Secp256k1::new(),
+            _secp: Secp256k1::new(),
         })
     }
 

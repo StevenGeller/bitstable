@@ -3,7 +3,8 @@ use bitcoin::{Amount, PublicKey, Network};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use bitcoin::PrivateKey;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 BitStable Protocol - Production Ready Demo");
     println!("=============================================\n");
 
@@ -24,16 +25,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n👤 Test User:");
     println!("   Public Key: {}", user);
 
-    // Exchange rate setup
+    // Live exchange rate setup
+    println!("\n💱 Fetching Live Exchange Rates:");
     let mut exchange_rates = ExchangeRates::new();
-    exchange_rates.update_btc_price(Currency::USD, 92000.0);
-    exchange_rates.update_btc_price(Currency::EUR, 84000.0);
-    exchange_rates.update_exchange_rate(Currency::EUR, 0.91);
-
-    println!("\n💱 Current Exchange Rates:");
-    println!("   BTC/USD: ${:.2}", exchange_rates.get_btc_price(&Currency::USD).unwrap());
-    println!("   BTC/EUR: €{:.2}", exchange_rates.get_btc_price(&Currency::EUR).unwrap());
-    println!("   EUR/USD: {:.4}", exchange_rates.get_rate_to_usd(&Currency::EUR).unwrap());
+    
+    let client = reqwest::Client::new();
+    let url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur";
+    
+    match client.get(url).send().await {
+        Ok(response) => {
+            if let Ok(text) = response.text().await {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(bitcoin_data) = parsed.get("bitcoin") {
+                        if let Some(usd_price) = bitcoin_data.get("usd").and_then(|v| v.as_f64()) {
+                            exchange_rates.update_btc_price(Currency::USD, usd_price);
+                            println!("   🌐 Live BTC/USD: ${:.2}", usd_price);
+                        }
+                        if let Some(eur_price) = bitcoin_data.get("eur").and_then(|v| v.as_f64()) {
+                            exchange_rates.update_btc_price(Currency::EUR, eur_price);
+                            println!("   🌐 Live BTC/EUR: €{:.2}", eur_price);
+                            
+                            // Calculate EUR/USD rate from live data
+                            if let Some(usd_price) = exchange_rates.get_btc_price(&Currency::USD) {
+                                let eur_usd_rate = eur_price / usd_price;
+                                exchange_rates.update_exchange_rate(Currency::EUR, eur_usd_rate);
+                                println!("   📊 Live EUR/USD: {:.4}", eur_usd_rate);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("   ⚠️ Network unavailable, using offline mode");
+            exchange_rates.update_btc_price(Currency::USD, 92000.0);
+            exchange_rates.update_btc_price(Currency::EUR, 84000.0);
+            exchange_rates.update_exchange_rate(Currency::EUR, 0.91);
+        }
+    }
 
     // Vault simulation
     println!("\n🏦 Vault Simulation:");
@@ -96,11 +125,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let current_btc_balance = 0.5;
 
         let action_conservative = controller_conservative.calculate_rebalance(
-            current_usd_balance, current_btc_balance, &scenario_rates
+            current_usd_balance, current_btc_balance, &scenario_rates, 2.0, 1.5
         );
         
         let action_aggressive = controller_aggressive.calculate_rebalance(
-            current_eur_balance, current_btc_balance, &scenario_rates
+            current_eur_balance, current_btc_balance, &scenario_rates, 2.0, 1.5
         );
 
         println!("     Conservative Action: {:?}", action_conservative);
