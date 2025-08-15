@@ -109,21 +109,21 @@ async fn main() -> Result<()> {
     let config = ProtocolConfig::testnet();
     let mut vault_manager = VaultManager::new(&config)?;
     
-    // Add currency configurations
+    // Add currency configurations (matching whitepaper defaults)
     vault_manager.add_currency(Currency::EUR, CurrencyConfig {
-        stability_fee_apr: 0.04,
-        liquidation_penalty: 0.05,
-        min_collateral_ratio: 1.5,
-        liquidation_threshold: 1.2,
+        stability_fee_apr: 0.025,  // 2.5% APR for EUR
+        liquidation_penalty: 0.05,  // 5% penalty (whitepaper default)
+        min_collateral_ratio: 1.5,  // 150% minimum (whitepaper default)
+        liquidation_threshold: 1.1, // 110% liquidation (whitepaper default)
         min_mint_amount: 10.0,
         enabled: true,
     });
     
     vault_manager.add_currency(Currency::GBP, CurrencyConfig {
-        stability_fee_apr: 0.045,
-        liquidation_penalty: 0.05,
-        min_collateral_ratio: 1.5,
-        liquidation_threshold: 1.2,
+        stability_fee_apr: 0.03,    // 3% APR for GBP
+        liquidation_penalty: 0.05,  // 5% penalty (whitepaper default)
+        min_collateral_ratio: 1.5,  // 150% minimum (whitepaper default)
+        liquidation_threshold: 1.1, // 110% liquidation (whitepaper default)
         min_mint_amount: 10.0,
         enabled: true,
     });

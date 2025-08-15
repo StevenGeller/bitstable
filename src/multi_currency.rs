@@ -329,10 +329,10 @@ pub struct CurrencyConfig {
 impl Default for CurrencyConfig {
     fn default() -> Self {
         Self {
-            stability_fee_apr: 0.05,      // 5% APR
-            liquidation_penalty: 0.13,     // 13% penalty
-            min_collateral_ratio: 1.5,     // 150% minimum
-            liquidation_threshold: 1.2,    // 120% liquidation
+            stability_fee_apr: 0.02,      // 2% APR (matches whitepaper)
+            liquidation_penalty: 0.05,     // 5% penalty (matches whitepaper)
+            min_collateral_ratio: 1.5,     // 150% minimum (matches whitepaper)
+            liquidation_threshold: 1.1,    // 110% liquidation (matches whitepaper)
             min_mint_amount: 10.0,         // Minimum 10 units
             enabled: true,
         }
@@ -353,17 +353,18 @@ impl MultiCurrencyConfig {
         // Set up default configurations for major currencies
         currencies.insert(Currency::USD, CurrencyConfig::default());
         currencies.insert(Currency::EUR, CurrencyConfig {
-            stability_fee_apr: 0.04,  // Lower fee for EUR
+            stability_fee_apr: 0.025,  // Slightly higher fee for EUR
             ..Default::default()
         });
         currencies.insert(Currency::GBP, CurrencyConfig {
-            stability_fee_apr: 0.045,
+            stability_fee_apr: 0.03,   // Moderate fee for GBP
             ..Default::default()
         });
         currencies.insert(Currency::NGN, CurrencyConfig {
             stability_fee_apr: 0.08,  // Higher fee for emerging market currency
-            liquidation_penalty: 0.15,
+            liquidation_penalty: 0.08, // Higher penalty for volatile currency
             min_collateral_ratio: 1.75,  // Higher collateral requirement
+            liquidation_threshold: 1.25,  // Higher liquidation threshold for risk
             ..Default::default()
         });
 
