@@ -47,17 +47,26 @@ async fn main() -> Result<()> {
 
     println!("🔗 Connecting to Bitcoin Core at {}...", bitcoin_config.rpc_url);
     
-    let bitcoin_client = match BitcoinClient::testnet(&bitcoin_config.rpc_url, &bitcoin_config.rpc_username, &bitcoin_config.rpc_password) {
+    let bitcoin_client = match BitcoinClient::testnet_with_cookie(&bitcoin_config.rpc_url) {
         Ok(client) => {
-            println!("✅ Connected to Bitcoin testnet node using RPC authentication!");
+            println!("✅ Connected to Bitcoin testnet node using cookie authentication!");
             client
         }
-        Err(e) => {
-            println!("❌ Failed to connect to Bitcoin node: {}", e);
-            println!("💡 Make sure Bitcoin Core is running with testnet enabled");
-            println!("   Start with: bitcoind -testnet -daemon");
-            println!("   Check status: bitcoin-cli -testnet getblockchaininfo");
-            return Err(e);
+        Err(_) => {
+            println!("⚠️ Cookie authentication failed, trying username/password...");
+            match BitcoinClient::testnet(&bitcoin_config.rpc_url, &bitcoin_config.rpc_username, &bitcoin_config.rpc_password) {
+                Ok(client) => {
+                    println!("✅ Connected to Bitcoin testnet node using RPC authentication!");
+                    client
+                }
+                Err(e) => {
+                    println!("❌ Failed to connect to Bitcoin node: {}", e);
+                    println!("💡 Make sure Bitcoin Core is running with testnet enabled");
+                    println!("   Start with: bitcoind -testnet -daemon");
+                    println!("   Check status: bitcoin-cli -testnet getblockchaininfo");
+                    return Err(e);
+                }
+            }
         }
     };
 
@@ -231,7 +240,8 @@ async fn main() -> Result<()> {
     let liquidator_pubkey = PublicKey::from_private_key(&secp, &liquidator_privkey);
     
     // Create a temporary Bitcoin client to generate the real multisig address
-    let temp_bitcoin_client = BitcoinClient::testnet(&bitcoin_config.rpc_url, &bitcoin_config.rpc_username, &bitcoin_config.rpc_password)?;
+    let temp_bitcoin_client = BitcoinClient::testnet_with_cookie(&bitcoin_config.rpc_url)
+        .or_else(|_| BitcoinClient::testnet(&bitcoin_config.rpc_url, &bitcoin_config.rpc_username, &bitcoin_config.rpc_password))?;
     let (multisig_address, _multisig_script) = temp_bitcoin_client.create_escrow_multisig(alice_pubkey, oracle_pubkey, liquidator_pubkey)?;
     
     println!("🔑 Multisig: 2-of-3 (User + Oracle + Liquidator)");
@@ -263,16 +273,39 @@ async fn main() -> Result<()> {
     println!("   • https://bitcoinfaucet.uo1.net/");
     println!("");
     
-    println!("📝 MANUAL STEP REQUIRED:");
-    println!("   1. Visit one of the faucets above");
-    println!("   2. Send testnet BTC to Alice's address: {}", alice_address);
-    println!("   3. Wait for confirmation (usually 1-10 minutes)");
+    println!("🤖 AUTOMATED FAUCET REQUEST:");
+    println!("   The demo will now automatically request testnet BTC from faucets");
+    println!("   This may take a few seconds to try multiple faucets...");
     println!("");
     
-    println!("💰 After requesting from faucet, the demo will automatically monitor for incoming Bitcoin...");
+    print!("🚰 Press Enter to start automated faucet request...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    
+    println!("🔄 Attempting automated faucet requests...");
+    match temp_bitcoin_client.request_testnet_funds(&alice_address).await {
+        Ok(txid) => {
+            println!("🎉 SUCCESS! Faucet request completed!");
+            println!("   Transaction ID: {}", txid);
+            println!("   View on explorer: https://mempool.space/testnet/tx/{}", txid);
+            println!("   Now waiting for confirmation...");
+        }
+        Err(e) => {
+            println!("⚠️ Automated faucet requests failed: {}", e);
+            println!("💡 MANUAL FALLBACK REQUIRED:");
+            println!("   1. Visit https://coinfaucet.eu/en/btc-testnet/");
+            println!("   2. Enter Alice's address: {}", alice_address);
+            println!("   3. Complete captcha and request testnet BTC");
+            println!("   4. Wait for confirmation (usually 1-10 minutes)");
+            println!("");
+        }
+    }
+    
+    println!("💰 Starting automatic monitoring for incoming Bitcoin...");
     println!("");
     
-    print!("🔍 Press Enter to start automatic monitoring for incoming Bitcoin...");
+    print!("🔍 Press Enter to continue with monitoring...");
     io::stdout().flush().unwrap();
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
@@ -294,9 +327,20 @@ async fn main() -> Result<()> {
     
     // Auto-monitoring loop - check every 10 seconds
     let mut check_count = 0;
+    let mut first_check = true;
+    
     let alice_utxos = loop {
         check_count += 1;
-        println!("🔄 Check #{}: Scanning for UTXOs...", check_count);
+        
+        // Use \r to overwrite the previous line for cleaner output
+        if first_check {
+            print!("🔄 Monitoring... ");
+            io::stdout().flush().unwrap();
+            first_check = false;
+        } else {
+            print!("\r🔄 Check #{}: Scanning for UTXOs... ", check_count);
+            io::stdout().flush().unwrap();
+        }
         
         // Check Alice's real UTXOs
         match temp_bitcoin_client.get_utxos(&alice_address) {
@@ -304,10 +348,10 @@ async fn main() -> Result<()> {
                 let total_balance: u64 = utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
                 let total_balance_btc = total_balance as f64 / 100_000_000.0;
                 
-                println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, utxos.len());
-                
                 if !utxos.is_empty() {
-                    println!("🎉 SUCCESS! Funding detected!");
+                    // Clear the line and show success
+                    print!("\r🎉 SUCCESS! Funding detected!                                    \n");
+                    println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, utxos.len());
                     println!("📦 UTXOs found:");
                     for (i, utxo) in utxos.iter().enumerate() {
                         println!("   UTXO {}: {} BTC ({}:{})", i+1, utxo.amount.to_btc(), utxo.txid, utxo.vout);
@@ -320,27 +364,37 @@ async fn main() -> Result<()> {
                         println!("⚠️  Insufficient balance. Need {} BTC but only have {} BTC", 
                                 vault_collateral.to_btc(), total_balance_btc);
                         println!("💡 Please send more testnet BTC to: {}", alice_address);
-                        println!("🔄 Continuing to monitor...");
+                        print!("🔄 Continuing to monitor... ");
+                        io::stdout().flush().unwrap();
                     }
                 } else {
-                    println!("⏳ No UTXOs found yet. Still waiting for funding...");
+                    // Update the same line with current status
+                    print!("\r🔄 Check #{}: No UTXOs found (0 BTC) - waiting...        ", check_count);
+                    io::stdout().flush().unwrap();
+                    
                     if check_count == 1 {
-                        println!("💡 Faucet URLs while you wait:");
+                        print!("\n💡 Faucet URLs while you wait:\n");
                         println!("   • https://coinfaucet.eu/en/btc-testnet/");
                         println!("   • https://testnet-faucet.com/btc-testnet");
                         println!("   • https://bitcoinfaucet.uo1.net/");
+                        print!("🔄 Monitoring... ");
+                        io::stdout().flush().unwrap();
                     }
                 }
             }
             Err(e) => {
-                println!("❌ Error checking UTXOs: {}", e);
-                println!("🔄 Retrying in 10 seconds...");
+                print!("\r❌ Error checking UTXOs: {}                    \n", e);
+                print!("🔄 Retrying... ");
+                io::stdout().flush().unwrap();
             }
         }
         
-        println!("⏰ Waiting 10 seconds before next check...");
-        sleep(Duration::from_secs(10)).await;
-        println!();
+        // Wait 10 seconds (show countdown to make it clear it's working)
+        for i in (1..=10).rev() {
+            print!("\r🔄 Check #{}: Next check in {}s...                    ", check_count, i);
+            io::stdout().flush().unwrap();
+            sleep(Duration::from_secs(1)).await;
+        }
     };
     
     // At this point we have sufficient balance

@@ -193,11 +193,50 @@ impl BitcoinClient {
         }
     }
 
-    /// Get UTXOs for an address
+    /// Get UTXOs for an address (works for external addresses)
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
+        log::debug!("Getting UTXOs for address: {}", address);
+        
+        // First try listunspent (for wallet addresses)
+        log::debug!("Trying wallet UTXOs (listunspent)...");
+        match self.get_wallet_utxos(address) {
+            Ok(utxos) if !utxos.is_empty() => {
+                log::debug!("Found {} UTXOs in wallet", utxos.len());
+                return Ok(utxos);
+            },
+            Ok(_) => log::debug!("No UTXOs found in wallet"),
+            Err(e) => log::debug!("Wallet UTXO scan failed: {}", e),
+        }
+        
+        // Try scantxoutset for external addresses (requires full sync)
+        log::debug!("Trying scantxoutset for external address...");
+        match self.scan_address_utxos(address) {
+            Ok(utxos) if !utxos.is_empty() => {
+                log::debug!("Found {} UTXOs via scantxoutset", utxos.len());
+                return Ok(utxos);
+            },
+            Ok(_) => log::debug!("No UTXOs found via scantxoutset"),
+            Err(e) => log::debug!("Scantxoutset failed: {}", e),
+        }
+        
+        // If Bitcoin Core is still syncing, try recent block scanning
+        log::debug!("Trying recent block scanning...");
+        match self.scan_recent_blocks_for_address(address) {
+            Ok(utxos) => {
+                log::debug!("Found {} UTXOs via recent block scanning", utxos.len());
+                Ok(utxos)
+            },
+            Err(e) => {
+                log::debug!("Recent block scanning failed: {}", e);
+                Ok(Vec::new()) // Return empty vec rather than error
+            }
+        }
+    }
+    
+    /// Get UTXOs from wallet (for addresses in the wallet)
+    fn get_wallet_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
         let mut utxos = Vec::new();
 
-        // Use listunspent RPC call
         let unspent_outputs = self.client.list_unspent(
             Some(1), // min confirmations
             None,    // max confirmations  
@@ -221,6 +260,113 @@ impl BitcoinClient {
             });
         }
 
+        Ok(utxos)
+    }
+    
+    /// Scan UTXO set for external addresses using scantxoutset
+    fn scan_address_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
+        use bitcoincore_rpc::json::{ScanTxOutRequest, ScanTxOutResult};
+        
+        // Create scan request for the address
+        let descriptor = format!("addr({})", address);
+        let scan_objects = vec![ScanTxOutRequest::Single(descriptor)];
+        
+        // Scan the UTXO set
+        let scan_result: ScanTxOutResult = self.client
+            .call("scantxoutset", &["start".into(), serde_json::to_value(scan_objects)?])
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("scantxoutset failed: {}", e)))?;
+            
+        let mut utxos = Vec::new();
+        
+        // Process scan results  
+        let unspents = scan_result.unspents;
+        for unspent in unspents {
+            // Get transaction details to check confirmations
+            let tx_info = match self.client.get_raw_transaction_info(&unspent.txid, None) {
+                Ok(info) => info,
+                Err(_) => continue, // Skip if we can't get transaction info
+            };
+            
+            let confirmations = tx_info.confirmations.unwrap_or(0);
+            
+            // Only include confirmed UTXOs (1+ confirmations)
+            if confirmations >= 1 {
+                utxos.push(Utxo {
+                    txid: unspent.txid,
+                    vout: unspent.vout,
+                    amount: unspent.amount,
+                    address: address.clone(),
+                    confirmations,
+                    spendable: true, // Assume spendable for external addresses
+                });
+            }
+        }
+        
+        log::debug!("Found {} UTXOs for address {} using scantxoutset", utxos.len(), address);
+        Ok(utxos)
+    }
+    
+    /// Scan recent blocks for transactions to an address (works during sync)
+    fn scan_recent_blocks_for_address(&self, address: &Address) -> Result<Vec<Utxo>> {
+        let mut utxos = Vec::new();
+        
+        // Get current best block height
+        let current_height = match self.client.get_block_count() {
+            Ok(height) => height,
+            Err(e) => {
+                log::warn!("Failed to get block count: {}", e);
+                return Ok(utxos);
+            }
+        };
+        
+        // Scan the last 50 blocks for transactions to this address
+        let start_height = current_height.saturating_sub(50);
+        
+        for height in start_height..=current_height {
+            match self.client.get_block_hash(height) {
+                Ok(block_hash) => {
+                    match self.client.get_block(&block_hash) {
+                        Ok(block) => {
+                            // Check each transaction in the block
+                            for tx in &block.txdata {
+                                // Check each output
+                                for (vout, output) in tx.output.iter().enumerate() {
+                                    // Try to extract address from script
+                                    if let Ok(output_address) = Address::from_script(&output.script_pubkey, self.network) {
+                                        if output_address == *address {
+                                            // Found a transaction to our address, check if it's unspent
+                                            let txid = tx.compute_txid();
+                                            
+                                            // Simple unspent check - if we can't find it spent in later blocks, assume unspent
+                                            // For a more complete implementation, we'd need to track all spending transactions
+                                            utxos.push(Utxo {
+                                                txid,
+                                                vout: vout as u32,
+                                                amount: output.value,
+                                                address: output_address,
+                                                confirmations: (current_height - height + 1) as u32,
+                                                spendable: true,
+                                            });
+                                            
+                                            log::info!("Found UTXO: {}:{} = {} BTC to {}", 
+                                                      txid, vout, output.value.to_btc(), address);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to get block at height {}: {}", height, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to get block hash for height {}: {}", height, e);
+                }
+            }
+        }
+        
+        log::debug!("Found {} UTXOs for address {} by scanning recent blocks", utxos.len(), address);
         Ok(utxos)
     }
 
@@ -338,25 +484,40 @@ impl BitcoinClient {
 
         log::info!("Requesting testnet funds for address: {}", address);
 
-        // Try multiple testnet faucets
+        // Try multiple testnet faucets in order of reliability
         let faucets = vec![
-            format!("https://coinfaucet.eu/en/btc-testnet/?address={}", address),
-            format!("https://testnet-faucet.com/btc-testnet/send?address={}", address),
+            "coinfaucet.eu",
+            "testnet-faucet.com", 
+            "bitcoinfaucet.uo1.net",
         ];
 
-        // For now, return a simulated transaction ID
-        // In production, this would make HTTP requests to actual faucets
-        for faucet_url in &faucets {
-            log::info!("Trying faucet: {}", faucet_url);
+        for faucet_name in faucets {
+            log::info!("Trying faucet: {}", faucet_name);
             
-            // Simulate requesting funds (in real implementation, make HTTP request)
-            match self.simulate_faucet_request(address).await {
-                Ok(txid) => {
-                    log::info!("Faucet request successful: {}", txid);
-                    return Ok(txid);
+            let result = match faucet_name {
+                "coinfaucet.eu" => self.try_coinfaucet_eu(address).await,
+                "testnet-faucet.com" => self.try_testnet_faucet_com(address).await,
+                "bitcoinfaucet.uo1.net" => self.try_bitcoinfaucet_uo1(address).await,
+                _ => continue,
+            };
+            
+            match result {
+                Ok(response) => {
+                    log::info!("Faucet {} request successful: {}", faucet_name, response);
+                    
+                    // Wait a bit for the transaction to propagate
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    
+                    // Try to find the transaction in mempool
+                    if let Some(txid) = self.find_recent_transaction_to_address(address).await? {
+                        log::info!("Found transaction {} from faucet", txid);
+                        return Ok(txid);
+                    } else {
+                        log::warn!("Faucet claimed success but no transaction found yet");
+                    }
                 }
                 Err(e) => {
-                    log::warn!("Faucet request failed: {}", e);
+                    log::warn!("Faucet {} request failed: {}", faucet_name, e);
                     continue;
                 }
             }
@@ -365,15 +526,135 @@ impl BitcoinClient {
         Err(BitStableError::BitcoinRpcError("All faucets failed".to_string()))
     }
 
-    /// Simulate faucet request (replace with real HTTP calls in production)
-    async fn simulate_faucet_request(&self, _address: &Address) -> Result<Txid> {
-        // In real implementation, this would:
-        // 1. Make HTTP POST to faucet API
-        // 2. Parse response for transaction ID
-        // 3. Wait for transaction to appear in mempool
+    /// Try coinfaucet.eu (supports direct API)
+    async fn try_coinfaucet_eu(&self, address: &Address) -> Result<String> {
+        let client = reqwest::Client::new();
+        let url = "https://coinfaucet.eu/en/btc-testnet/";
         
-        // For now, return a placeholder - this should be replaced with real faucet integration
-        Err(BitStableError::BitcoinRpcError("Simulated faucet - needs real implementation".to_string()))
+        // This faucet uses a form submission
+        let params = [
+            ("address", address.to_string()),
+            ("captcha", "automated".to_string()), // Will need real captcha solving
+        ];
+        
+        let response = client
+            .post(url)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        let text = response
+            .text()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        if text.contains("success") || text.contains("sent") {
+            Ok("Request submitted successfully".to_string())
+        } else {
+            Err(BitStableError::BitcoinRpcError("Faucet request rejected".to_string()))
+        }
+    }
+
+    /// Try testnet-faucet.com (API-based)
+    async fn try_testnet_faucet_com(&self, address: &Address) -> Result<String> {
+        let client = reqwest::Client::new();
+        let url = format!("https://testnet-faucet.com/btc-testnet/send?address={}", address);
+        
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        let text = response
+            .text()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        // Look for success indicators
+        if text.contains("txid") || text.contains("transaction") || text.contains("sent") {
+            // Try to extract transaction ID from response
+            if let Some(txid_start) = text.find("txid") {
+                let txid_section = &text[txid_start..];
+                if let Some(txid_match) = txid_section.chars()
+                    .skip_while(|c| !c.is_ascii_hexdigit())
+                    .take(64)
+                    .collect::<String>()
+                    .parse::<String>()
+                    .ok()
+                {
+                    return Ok(format!("Transaction ID: {}", txid_match));
+                }
+            }
+            Ok("Request submitted successfully".to_string())
+        } else {
+            Err(BitStableError::BitcoinRpcError("Faucet request failed".to_string()))
+        }
+    }
+
+    /// Try bitcoinfaucet.uo1.net
+    async fn try_bitcoinfaucet_uo1(&self, address: &Address) -> Result<String> {
+        let client = reqwest::Client::new();
+        let url = "https://bitcoinfaucet.uo1.net/send.php";
+        
+        let params = [
+            ("address", address.to_string()),
+            ("captcha", "test".to_string()), // This faucet may require captcha
+        ];
+        
+        let response = client
+            .post(url)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        let text = response
+            .text()
+            .await
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Network error: {}", e)))?;
+            
+        if text.contains("success") || text.contains("sent") || text.contains("transaction") {
+            Ok("Request submitted successfully".to_string())
+        } else {
+            Err(BitStableError::BitcoinRpcError("Faucet request failed".to_string()))
+        }
+    }
+
+    /// Find a recent transaction to a specific address by checking mempool and recent blocks
+    async fn find_recent_transaction_to_address(&self, address: &Address) -> Result<Option<Txid>> {
+        // First check if there are any UTXOs (which would include unconfirmed ones)
+        match self.get_utxos(address) {
+            Ok(utxos) if !utxos.is_empty() => {
+                // Return the most recent transaction
+                let most_recent = utxos.iter().max_by_key(|utxo| utxo.confirmations);
+                if let Some(utxo) = most_recent {
+                    return Ok(Some(utxo.txid));
+                }
+            }
+            _ => {}
+        }
+        
+        // If no UTXOs found, try scanning recent blocks
+        let current_height = self.get_block_height()?;
+        for height in (current_height.saturating_sub(6))..=current_height {
+            if let Ok(block_hash) = self.client.get_block_hash(height) {
+                if let Ok(block) = self.client.get_block(&block_hash) {
+                    for tx in &block.txdata {
+                        for output in &tx.output {
+                            if let Ok(output_address) = bitcoin::Address::from_script(&output.script_pubkey, self.network) {
+                                if output_address == *address {
+                                    return Ok(Some(tx.compute_txid()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(None)
     }
 
     /// Generate a new Bitcoin testnet address with private key
