@@ -193,12 +193,6 @@ Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
 
 This project is licensed under the MIT License - see [LICENSE](./LICENSE) file for details.
 
-## Support
-
-- Documentation: [docs.bitstable.io](https://docs.bitstable.io)
-- Discord: [discord.gg/bitstable](https://discord.gg/bitstable)
-- Twitter: [@bitstable](https://twitter.com/bitstable)
-
 ## Roadmap
 
 - [x] Core vault implementation
@@ -210,9 +204,3 @@ This project is licensed under the MIT License - see [LICENSE](./LICENSE) file f
 - [ ] WebSocket real-time updates
 - [ ] Admin dashboard
 - [ ] Mainnet deployment
-
-## Acknowledgments
-
-- Bitcoin Core developers
-- Rust Bitcoin community
-- DeFi protocol pioneers
