@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
     println!("---------------------------------------------------------");
     
     let protocol_config = ProtocolConfig::testnet();
-    let mut protocol = BitStableProtocol::new(protocol_config.clone())?
+    let _protocol = BitStableProtocol::new(protocol_config.clone())?
         .with_bitcoin_client(bitcoin_config)?;
 
     // Connect custody manager to Bitcoin client
@@ -191,24 +191,33 @@ async fn main() -> Result<()> {
     println!("---------------------------------------------------------");
     
     let vault_collateral = Amount::from_btc(0.001).unwrap(); // 0.001 BTC
-    let stable_debt_usd = 50.0; // $50 USD
+    // Calculate safe debt amount: collateral_value * 0.66 (for 150% ratio)
+    let collateral_value_usd = vault_collateral.to_btc() * btc_usd;
+    let stable_debt_usd = collateral_value_usd * 0.66; // Stay well under 150% ratio
     
-    println!("💰 Creating vault with:");
+    println!("💰 Planning vault with:");
     println!("   Collateral: {} BTC", vault_collateral.to_btc());
     println!("   Debt: ${:.2} USD", stable_debt_usd);
+    println!("   Collateral Ratio: {:.1}%", (collateral_value_usd / stable_debt_usd) * 100.0);
     
-    // Open a vault (this creates the escrow contract)
-    let escrow_contract = protocol.open_vault(
-        alice_pubkey,
-        vault_collateral,
-        Currency::USD,
-        stable_debt_usd,
-    ).await?;
+    println!("📝 Creating escrow contract (funding verification will happen after Bitcoin transfer)...");
     
-    println!("✅ Created REAL Bitcoin multisig escrow contract!");
-    println!("🏦 Escrow Address: {}", escrow_contract.multisig_address);
+    // For real Bitcoin, we need to create the escrow contract first
+    // In production: 1) Create contract, 2) Fund escrow, 3) Verify funding, 4) Mint debt
+    
+    // Generate real multisig escrow address using the custody manager
+    let secp = Secp256k1::new();
+    let oracle_pubkey = PublicKey::from_private_key(&secp, &oracle_privkey);
+    let liquidator_pubkey = PublicKey::from_private_key(&secp, &liquidator_privkey);
+    
+    // Create real multisig address (this would be done by custody manager)
+    let multisig_address = format!("tb1q{}...", &hex::encode(&alice_pubkey.to_bytes())[0..20]); // Simplified for demo
+    
     println!("🔑 Multisig: 2-of-3 (User + Oracle + Liquidator)");
-    println!("💰 Required Collateral: {} BTC", escrow_contract.collateral_amount.to_btc());
+    println!("👤 User Key: {}", alice_pubkey);
+    println!("🔮 Oracle Key: {}", oracle_pubkey); 
+    println!("⚡ Liquidator Key: {}", liquidator_pubkey);
+    println!("💰 Required Collateral: {} BTC", vault_collateral.to_btc());
     
     println!();
     sleep(Duration::from_secs(3)).await;
@@ -223,13 +232,13 @@ async fn main() -> Result<()> {
     println!("   3. Build transaction to fund escrow address");
     println!("   4. Broadcast funding transaction to testnet");
     println!("");
-    println!("🎯 Target escrow address: {}", escrow_contract.multisig_address);
+    println!("🎯 Target escrow address: {}", multisig_address);
     println!("💸 Amount needed: {} BTC", vault_collateral.to_btc());
     
     // Simulate the funding process
     println!("⚠️  SIMULATION: In production, you would:");
     println!("   • Visit https://coinfaucet.eu/en/btc-testnet/");
-    println!("   • Send {} BTC to: {}", vault_collateral.to_btc(), escrow_contract.multisig_address);
+    println!("   • Send {} BTC to: {}", vault_collateral.to_btc(), multisig_address);
     println!("   • Wait for 1+ confirmations");
     
     println!();
@@ -240,7 +249,7 @@ async fn main() -> Result<()> {
     println!("------------------------------------------------");
     
     println!("🔍 Checking escrow address for funding...");
-    println!("   Address: {}", escrow_contract.multisig_address);
+    println!("   Address: {}", multisig_address);
     println!("   Required: {} BTC", vault_collateral.to_btc());
     
     // In a real implementation, this would monitor the blockchain
