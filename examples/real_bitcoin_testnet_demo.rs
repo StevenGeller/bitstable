@@ -283,15 +283,38 @@ async fn main() -> Result<()> {
     println!("   Address: {}", alice_address);
     
     // Check Alice's real UTXOs
-    let alice_utxos = temp_bitcoin_client.get_utxos(&alice_address)?;
+    let alice_utxos = match temp_bitcoin_client.get_utxos(&alice_address) {
+        Ok(utxos) => utxos,
+        Err(e) => {
+            println!("❌ Error checking UTXOs: {}", e);
+            println!("💡 This might be because:");
+            println!("   • Alice's address hasn't been funded yet");
+            println!("   • Bitcoin Core wallet not loaded (try: bitcoin-cli -testnet createwallet demo)");
+            println!("   • Address not in wallet (this is normal for external addresses)");
+            println!("");
+            // Return empty UTXOs but continue to show the funding instructions
+            Vec::new()
+        }
+    };
     let total_balance: u64 = alice_utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
     let total_balance_btc = total_balance as f64 / 100_000_000.0;
     
     println!("💰 Alice's Balance: {} BTC ({} UTXOs found)", total_balance_btc, alice_utxos.len());
     
     if alice_utxos.is_empty() {
-        println!("❌ No UTXOs found! Please fund Alice's address first.");
+        println!("❌ No UTXOs found! Alice's address needs funding.");
         println!("   Address: {}", alice_address);
+        println!("");
+        println!("📋 To fund Alice's address:");
+        println!("   1. Visit https://coinfaucet.eu/en/btc-testnet/");
+        println!("   2. Enter Alice's address: {}", alice_address);
+        println!("   3. Complete captcha and request testnet BTC");
+        println!("   4. Wait 1-10 minutes for confirmation");
+        println!("   5. Re-run the demo");
+        println!("");
+        println!("🌐 Alternative faucets:");
+        println!("   • https://testnet-faucet.com/btc-testnet");
+        println!("   • https://bitcoinfaucet.uo1.net/");
         return Ok(());
     }
     
