@@ -1,13 +1,3 @@
-I wrote the whitepaper in the style and structure of the Bitcoin paper and saved it as a Markdown file.
-
-**Download:** [bitstable-whitepaper.md](sandbox:/mnt/data/bitstable-whitepaper.md)
-
----
-
-Below is the same content inline, for convenience.
-
----
-
 # BitStable: A Peer‑to‑Peer Bitcoin‑Collateralized Multi‑Currency Electronic Cash System
 
 **Version 0.9 — August 2025**
