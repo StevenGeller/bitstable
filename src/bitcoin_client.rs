@@ -1,7 +1,6 @@
 use bitcoin::{Address, Amount, Network, Transaction, Txid, BlockHash, PublicKey, PrivateKey};
 use bitcoin::{TxOut, TxIn, OutPoint, Witness, ScriptBuf, absolute, Sequence};
-use bitcoin::psbt::{Psbt, Input, PsbtSighashType};
-use bitcoin::sighash::{SighashCache, Prevouts};
+use bitcoin::sighash::SighashCache;
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use serde::{Deserialize, Serialize};
@@ -382,7 +381,7 @@ impl BitcoinClient {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let private_key = PrivateKey::new(secret_key, self.network);
-        let public_key = PublicKey::from_private_key(&secp, &private_key);
+        let _public_key = PublicKey::from_private_key(&secp, &private_key);
         
         // Generate P2WPKH address (native segwit) using compressed public key
         let compressed_pubkey = bitcoin::CompressedPublicKey::from_private_key(&secp, &private_key)

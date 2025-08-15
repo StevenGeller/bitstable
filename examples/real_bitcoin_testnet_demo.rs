@@ -1,9 +1,7 @@
-use bitstable::{ProtocolConfig, BitStableProtocol, BitStableError, Result};
-use bitstable::{Currency, ExchangeRates, CurrencyConfig, BitcoinClient, CustodyManager};
-use bitstable::bitcoin_client::{BitcoinConfig, NetworkStats, Utxo};
-use bitcoin::{Amount, PublicKey, secp256k1::{Secp256k1, SecretKey}, PrivateKey, Network, Address, Txid};
-use bitcoincore_rpc::Auth;
-use std::collections::HashMap;
+use bitstable::{ProtocolConfig, BitStableProtocol, Result};
+use bitstable::{Currency, ExchangeRates, BitcoinClient, CustodyManager};
+use bitstable::bitcoin_client::BitcoinConfig;
+use bitcoin::{Amount, PublicKey, secp256k1::{Secp256k1, SecretKey}, PrivateKey, Network};
 use tokio::time::{sleep, Duration};
 use std::io::{self, Write};
 
@@ -101,7 +99,7 @@ async fn main() -> Result<()> {
     // Generate Liquidator keys
     let liquidator_secret = SecretKey::new(&mut rand::thread_rng());
     let liquidator_privkey = PrivateKey::new(liquidator_secret, Network::Testnet);
-    let liquidator_pubkey = PublicKey::from_private_key(&secp, &liquidator_privkey);
+    let _liquidator_pubkey = PublicKey::from_private_key(&secp, &liquidator_privkey);
     
     println!("🔑 Generated Real Testnet Users:");
     println!("   Alice Address:  {}", alice_address);
@@ -122,7 +120,7 @@ async fn main() -> Result<()> {
         .with_bitcoin_client(bitcoin_config)?;
 
     // Connect custody manager to Bitcoin client
-    let custody_manager = CustodyManager::new(&protocol_config)?
+    let _custody_manager = CustodyManager::new(&protocol_config)?
         .with_bitcoin_client(bitcoin_client)
         .with_oracle_key(oracle_privkey)
         .with_liquidator_key(liquidator_privkey);

@@ -581,7 +581,7 @@ impl CustodyManager {
     pub async fn fund_escrow_from_testnet_faucet(
         &mut self,
         vault_id: Txid,
-        user_private_key: &PrivateKey,
+        _user_private_key: &PrivateKey,
     ) -> Result<Txid> {
         let bitcoin_client = self.bitcoin_client.as_ref()
             .ok_or_else(|| BitStableError::InvalidConfig("Bitcoin client not connected".to_string()))?;
