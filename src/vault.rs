@@ -256,25 +256,33 @@ impl VaultManager {
         currency: Currency,
         amount: f64,
     ) -> Result<()> {
-        let vault = self.get_vault_mut(vault_id)?;
-        
-        // Check if minting would violate collateral ratio
-        let mut test_vault = vault.clone();
-        test_vault.mint_debt(currency.clone(), amount)?;
-        
+        // Check collateral ratio first without borrowing conflicts
         let currency_config = self.currency_configs.get(&currency)
-            .ok_or_else(|| BitStableError::InvalidConfig(format!("Currency {} not supported", currency.to_string())))?;
+            .ok_or_else(|| BitStableError::InvalidConfig(format!("Currency {} not supported", currency.to_string())))?
+            .clone();
+        let exchange_rates = self.exchange_rates.clone();
         
-        let new_ratio = test_vault.collateral_ratio_for_currency(&currency, &self.exchange_rates);
-        if new_ratio < currency_config.min_collateral_ratio {
-            return Err(BitStableError::InsufficientCollateral {
-                required: currency_config.min_collateral_ratio,
-                provided: new_ratio,
-            });
+        {
+            let vault = self.get_vault_mut(vault_id)?;
+            
+            // Check if minting would violate collateral ratio
+            let mut test_vault = vault.clone();
+            test_vault.mint_debt(currency.clone(), amount)?;
+            
+            let new_ratio = test_vault.collateral_ratio_for_currency(&currency, &exchange_rates);
+            if new_ratio < currency_config.min_collateral_ratio {
+                return Err(BitStableError::InsufficientCollateral {
+                    required: currency_config.min_collateral_ratio,
+                    provided: new_ratio,
+                });
+            }
+            
+            // Apply the mint
+            vault.mint_debt(currency.clone(), amount)?;
         }
         
-        // Apply the mint
-        vault.mint_debt(currency, amount)?;
+        // Store after releasing the mutable borrow
+        let vault = self.get_vault(vault_id)?;
         self.store_vault(vault)?;
         
         Ok(())
@@ -287,8 +295,13 @@ impl VaultManager {
         currency: Currency,
         amount: f64,
     ) -> Result<()> {
-        let vault = self.get_vault_mut(vault_id)?;
-        vault.burn_debt(currency, amount)?;
+        {
+            let vault = self.get_vault_mut(vault_id)?;
+            vault.burn_debt(currency, amount)?;
+        }
+        
+        // Store after releasing the mutable borrow
+        let vault = self.get_vault(vault_id)?;
         self.store_vault(vault)?;
         Ok(())
     }
@@ -313,15 +326,24 @@ impl VaultManager {
     }
 
     pub async fn liquidate_vault(&mut self, vault_id: Txid, liquidator: PublicKey) -> Result<()> {
-        let vault = self.get_vault_mut(vault_id)?;
+        // Check liquidation conditions first without borrowing conflicts
+        let exchange_rates = self.exchange_rates.clone();
+        let currency_configs = self.currency_configs.clone();
         
-        if !vault.is_liquidatable(&self.exchange_rates, &self.currency_configs) {
-            return Err(BitStableError::LiquidationNotPossible {
-                ratio: vault.collateral_ratio(&self.exchange_rates)
-            });
-        }
+        {
+            let vault = self.get_vault_mut(vault_id)?;
+            
+            if !vault.is_liquidatable(&exchange_rates, &currency_configs) {
+                return Err(BitStableError::LiquidationNotPossible {
+                    ratio: vault.collateral_ratio(&exchange_rates)
+                });
+            }
 
-        vault.state = VaultState::Liquidated;
+            vault.state = VaultState::Liquidated;
+        }
+        
+        // Store after releasing the mutable borrow
+        let vault = self.get_vault(vault_id)?;
         self.store_vault(vault)?;
         
         log::info!("Vault {} liquidated by {}", vault_id, liquidator);
@@ -330,24 +352,30 @@ impl VaultManager {
     }
 
     pub async fn close_vault(&mut self, vault_id: Txid, owner: PublicKey) -> Result<Amount> {
-        let vault = self.get_vault_mut(vault_id)?;
+        let collateral_to_return = {
+            let vault = self.get_vault_mut(vault_id)?;
+            
+            if vault.owner != owner {
+                return Err(BitStableError::InvalidConfig("Only vault owner can close vault".to_string()));
+            }
+
+            if vault.state != VaultState::Active {
+                return Err(BitStableError::InvalidConfig("Vault is not active".to_string()));
+            }
+
+            if !vault.debts.is_empty() {
+                return Err(BitStableError::InvalidConfig("Cannot close vault with outstanding debt".to_string()));
+            }
+
+            let collateral_to_return = vault.collateral_btc;
+            vault.state = VaultState::Closed;
+            vault.collateral_btc = Amount::ZERO;
+            
+            collateral_to_return
+        };
         
-        if vault.owner != owner {
-            return Err(BitStableError::InvalidConfig("Only vault owner can close vault".to_string()));
-        }
-
-        if vault.state != VaultState::Active {
-            return Err(BitStableError::InvalidConfig("Vault is not active".to_string()));
-        }
-
-        if !vault.debts.is_empty() {
-            return Err(BitStableError::InvalidConfig("Cannot close vault with outstanding debt".to_string()));
-        }
-
-        let collateral_to_return = vault.collateral_btc;
-        vault.state = VaultState::Closed;
-        vault.collateral_btc = Amount::ZERO;
-        
+        // Store the updated vault after releasing the mutable borrow
+        let vault = self.get_vault(vault_id)?;
         self.store_vault(vault)?;
         
         Ok(collateral_to_return)
@@ -415,6 +443,7 @@ impl VaultManager {
 mod tests {
     use super::*;
     use crate::multi_currency::{Currency, CurrencyConfig, ExchangeRates};
+    use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bitcoin::{PrivateKey, Network};
 
@@ -424,7 +453,7 @@ mod tests {
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let owner = PublicKey::from_private_key(&secp, &PrivateKey::new(secret_key, Network::Testnet));
         
-        let vault_id = Txid::all_zeros();
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
         let mut vault = Vault::new(vault_id, owner, Amount::from_btc(1.0).unwrap());
         
         vault.mint_debt(Currency::USD, 50000.0).unwrap();
@@ -440,7 +469,7 @@ mod tests {
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let owner = PublicKey::from_private_key(&secp, &PrivateKey::new(secret_key, Network::Testnet));
         
-        let vault_id = Txid::all_zeros();
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
         let mut vault = Vault::new(vault_id, owner, Amount::from_btc(1.0).unwrap());
         
         vault.mint_debt(Currency::USD, 50000.0).unwrap();

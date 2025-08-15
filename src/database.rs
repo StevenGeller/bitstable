@@ -4,7 +4,7 @@
 use sled::{Db, Tree};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bitcoin::{Txid, PublicKey, Amount};
-use crate::{BitStableError, Result, Vault, VaultState};
+use crate::{BitStableError, Result, Vault, VaultState, Currency};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 
@@ -350,15 +350,10 @@ mod tests {
         let db = DatabaseManager::new(temp_dir.path()).unwrap();
         
         // Create a test vault
-        let vault = Vault {
-            id: Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros()),
-            owner: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse().unwrap(),
-            collateral_btc: Amount::from_btc(1.0).unwrap(),
-            stable_debt_usd: 50000.0,
-            state: VaultState::Active,
-            created_at: Utc::now(),
-            last_fee_update: Utc::now(),
-        };
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
+        let owner = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse().unwrap();
+        let mut vault = Vault::new(vault_id, owner, Amount::from_btc(1.0).unwrap());
+        vault.debts.add_debt(Currency::USD, 50000.0).unwrap();
         
         // Save vault
         db.save_vault(&vault).unwrap();
@@ -366,7 +361,7 @@ mod tests {
         // Load vault
         let loaded_vault = db.load_vault(vault.id).unwrap();
         assert_eq!(loaded_vault.id, vault.id);
-        assert_eq!(loaded_vault.stable_debt_usd, vault.stable_debt_usd);
+        assert_eq!(loaded_vault.debts.get_debt(&Currency::USD), vault.debts.get_debt(&Currency::USD));
         
         // List vaults
         let vaults = db.list_vaults().unwrap();
@@ -410,15 +405,10 @@ mod tests {
         let db = DatabaseManager::new(temp_dir.path().join("db")).unwrap();
         
         // Create test data
-        let vault = Vault {
-            id: Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros()),
-            owner: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse().unwrap(),
-            collateral_btc: Amount::from_btc(1.0).unwrap(),
-            stable_debt_usd: 50000.0,
-            state: VaultState::Active,
-            created_at: Utc::now(),
-            last_fee_update: Utc::now(),
-        };
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
+        let owner = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse().unwrap();
+        let mut vault = Vault::new(vault_id, owner, Amount::from_btc(1.0).unwrap());
+        vault.debts.add_debt(Currency::USD, 50000.0).unwrap();
         
         db.save_vault(&vault).unwrap();
         

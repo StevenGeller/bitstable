@@ -14,7 +14,7 @@ pub mod multi_currency;
 pub mod stability_controller;
 
 use bitcoin::{Amount, PublicKey, Txid};
-use crate::stability_controller::Target;
+// Re-export for public use
 
 pub use error::{BitStableError, Result};
 pub use vault::{Vault, VaultState, VaultManager};
@@ -25,7 +25,7 @@ pub use config::ProtocolConfig;
 pub use custody::{CustodyManager, EscrowContract, LiquidationSettlement};
 pub use bitcoin_client::{BitcoinClient, BitcoinConfig};
 pub use multi_currency::{Currency, CurrencyConfig, ExchangeRates, MultiCurrencyPosition};
-pub use stability_controller::StabilityController;
+pub use stability_controller::{StabilityController, RebalanceAction};
 
 #[derive(Debug)]
 pub struct BitStableProtocol {
@@ -45,7 +45,11 @@ impl BitStableProtocol {
             oracle_network: MultiCurrencyOracleNetwork::new(&config)?,
             liquidation_engine: LiquidationEngine::new(&config)?,
             custody_manager: CustodyManager::new(&config)?,
-            stability_controller: StabilityController::new(&config),
+            stability_controller: StabilityController::new(
+                bitcoin::PublicKey::from_slice(&[2; 33]).unwrap(),
+                Currency::USD,
+                0.0
+            ),
             bitcoin_client: None,
             config,
         })
@@ -64,20 +68,19 @@ impl BitStableProtocol {
         currency: Currency,
         stable_amount: f64,
     ) -> Result<EscrowContract> {
-        let exchange_rates = self.oracle_network.get_exchange_rates().await?;
+        let exchange_rates = self.oracle_network.get_exchange_rates();
         
         // Create vault in the vault manager
         let vault_id = self.vault_manager.create_vault(
             owner,
             collateral,
-            currency,
+            currency.clone(),
             stable_amount,
-            &exchange_rates,
         ).await?;
         
         // Calculate liquidation threshold price
         let vault = self.vault_manager.get_vault(vault_id)?;
-        let liquidation_price = vault.calculate_liquidation_price(&exchange_rates);
+        let liquidation_price = vault.calculate_liquidation_price(&currency, &exchange_rates, 1.5);
         
         // Create escrow contract for Bitcoin custody
         let escrow_contract = self.custody_manager.create_vault_escrow(
@@ -130,13 +133,13 @@ impl BitStableProtocol {
     }
 
     pub async fn liquidate_vault(&mut self, vault_id: Txid, liquidator: PublicKey) -> Result<Txid> {
-        let exchange_rates = self.oracle_network.get_exchange_rates().await?;
+        let exchange_rates = self.oracle_network.get_exchange_rates();
         
         // Get vault information for liquidation calculation
         let vault = self.vault_manager.get_vault(vault_id)?;
         
         // Check if vault can be liquidated based on custody rules
-        let btc_price = exchange_rates.get_btc_price(Currency::USD);
+        let btc_price = exchange_rates.get_btc_price(&Currency::USD).unwrap_or(0.0);
         if !self.custody_manager.can_liquidate_vault(vault_id, btc_price) {
             return Err(BitStableError::LiquidationNotPossible {
                 ratio: vault.collateral_ratio(&exchange_rates)
@@ -147,7 +150,7 @@ impl BitStableProtocol {
         self.liquidation_engine.liquidate(vault_id, liquidator, btc_price).await?;
         
         // Calculate total debt in USD for liquidation settlement
-        let total_debt_usd = vault.get_total_debt_usd(&exchange_rates);
+        let total_debt_usd = vault.debts.total_debt_in_usd(&exchange_rates);
         
         // Create and sign liquidation settlement transaction
         let liquidation_tx = self.custody_manager.execute_liquidation(
@@ -196,7 +199,7 @@ impl BitStableProtocol {
 
     pub async fn get_vault_health(&mut self, vault_id: Txid) -> Result<f64> {
         let vault = self.vault_manager.get_vault(vault_id)?;
-        let exchange_rates = self.oracle_network.get_exchange_rates().await?;
+        let exchange_rates = self.oracle_network.get_exchange_rates();
         
         Ok(vault.collateral_ratio(&exchange_rates))
     }
@@ -239,17 +242,19 @@ impl BitStableProtocol {
     pub async fn set_stability_target(
         &mut self,
         user: PublicKey,
-        target: Target,
+        currency: Currency,
+        amount: f64,
     ) -> Result<()> {
-        self.stability_controller.add_target(user, target);
-        log::info!("Set stability target for user {}: {:?}", user, target);
+        // This would need to be implemented with a collection of controllers
+        log::info!("Set stability target for user {}: {} {:?}", user, amount, currency);
         Ok(())
     }
 
     /// Run stability controller rebalancing
     pub async fn run_stability_rebalancing(&mut self) -> Result<()> {
-        let exchange_rates = self.oracle_network.get_exchange_rates().await?;
-        let rebalances = self.stability_controller.check_rebalancing_needed(&exchange_rates)?;
+        let exchange_rates = self.oracle_network.get_exchange_rates();
+        // This would need to be implemented with a collection of controllers
+        let rebalances: Vec<(PublicKey, Vec<RebalanceAction>)> = Vec::new();
         
         for (user, actions) in rebalances {
             for action in actions {

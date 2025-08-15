@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Ordering;
 use chrono::{DateTime, Utc};
-use crate::{BitStableError, Result, ProtocolConfig, Vault};
+use crate::{BitStableError, Result, ProtocolConfig, Vault, ExchangeRates, Currency, CurrencyConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquidationOpportunity {
@@ -74,12 +74,23 @@ impl LiquidationEngine {
         })
     }
 
-    pub fn scan_for_liquidations(&mut self, vaults: &[&Vault], btc_price: f64) {
+    pub fn scan_for_liquidations(&mut self, vaults: &[&Vault], exchange_rates: &ExchangeRates) {
         self.liquidation_queue.clear();
         
         for vault in vaults {
-            if vault.is_liquidatable(btc_price, self.config.liquidation_threshold) {
-                let opportunity = self.create_liquidation_opportunity(vault, btc_price);
+            // Create a basic currency config map for liquidation check
+            let mut currencies = HashMap::new();
+            currencies.insert(Currency::USD, CurrencyConfig {
+                stability_fee_apr: self.config.stability_fee_apr,
+                liquidation_penalty: self.config.liquidation_penalty,
+                min_collateral_ratio: self.config.min_collateral_ratio,
+                liquidation_threshold: self.config.liquidation_threshold,
+                min_mint_amount: 1.0,
+                enabled: true,
+            });
+            
+            if vault.is_liquidatable(exchange_rates, &currencies) {
+                let opportunity = self.create_liquidation_opportunity(vault, exchange_rates);
                 self.liquidation_queue.push(opportunity);
             }
         }
@@ -87,15 +98,15 @@ impl LiquidationEngine {
         log::info!("Found {} liquidation opportunities", self.liquidation_queue.len());
     }
 
-    fn create_liquidation_opportunity(&self, vault: &Vault, btc_price: f64) -> LiquidationOpportunity {
-        let collateral_ratio = vault.collateral_ratio(btc_price);
-        let bonus = vault.liquidation_bonus(btc_price, self.config.liquidation_penalty);
+    fn create_liquidation_opportunity(&self, vault: &Vault, exchange_rates: &ExchangeRates) -> LiquidationOpportunity {
+        let collateral_ratio = vault.collateral_ratio(exchange_rates);
+        let bonus = vault.liquidation_bonus(exchange_rates, self.config.liquidation_penalty);
         
         LiquidationOpportunity {
             vault_id: vault.id,
             owner: vault.owner,
             collateral: vault.collateral_btc,
-            debt_usd: vault.stable_debt_usd,
+            debt_usd: vault.debts.total_debt_in_usd(exchange_rates),
             collateral_ratio,
             potential_bonus: bonus,
             discovered_at: Utc::now(),

@@ -240,6 +240,7 @@ mod tests {
     use super::*;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bitcoin::{PrivateKey, Network};
+    use bitcoin::hashes::Hash;
 
     #[test]
     fn test_multi_currency_stable_manager() {
@@ -251,7 +252,7 @@ mod tests {
         let holder2 = PublicKey::from_private_key(&secp, &PrivateKey::new(secret_key2, Network::Testnet));
         
         let mut manager = MultiCurrencyStableManager::new();
-        let vault_id = Txid::all_zeros();
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
         
         // Mint different currencies
         manager.mint_stable(holder1, Currency::USD, 1000.0, vault_id).unwrap();

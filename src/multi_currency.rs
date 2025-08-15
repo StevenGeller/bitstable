@@ -398,6 +398,7 @@ mod tests {
     use super::*;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bitcoin::{PrivateKey, Network};
+    use bitcoin::hashes::Hash;
 
     #[test]
     fn test_multi_currency_debt() {
@@ -431,7 +432,7 @@ mod tests {
         let holder = PublicKey::from_private_key(&secp, &PrivateKey::new(secret_key, Network::Testnet));
         
         let mut position = MultiCurrencyPosition::new(holder);
-        let vault_id = Txid::all_zeros();
+        let vault_id = Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros());
         
         position.mint_stable(Currency::USD, 1000.0, vault_id).unwrap();
         position.mint_stable(Currency::EUR, 500.0, vault_id).unwrap();
