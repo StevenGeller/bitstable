@@ -11,7 +11,6 @@ async fn main() -> Result<()> {
     
     println!("🪙  REAL BITCOIN TESTNET BITSTABLE DEMO");
     println!("=====================================");
-    println!("⚠️  WARNING: This demo uses REAL Bitcoin testnet transactions!");
     println!("📋 Requirements:");
     println!("   • Bitcoin Core testnet node running on localhost:18332");
     println!("   • RPC credentials: bitcoin:password (configured)");
