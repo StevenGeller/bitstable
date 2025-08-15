@@ -99,6 +99,31 @@ impl BitcoinClient {
         Self::new(rpc_url, auth, Network::Testnet)
     }
 
+    /// Create client for regtest (regression test network) - fully controllable local network
+    pub fn regtest(rpc_url: &str, username: &str, password: &str) -> Result<Self> {
+        let auth = Auth::UserPass(username.to_string(), password.to_string());
+        Self::new(rpc_url, auth, Network::Regtest)
+    }
+
+    /// Create regtest client using cookie authentication
+    pub fn regtest_with_cookie(rpc_url: &str) -> Result<Self> {
+        // Try to read the regtest cookie file
+        let cookie_path = std::env::var("HOME")
+            .map(|home| format!("{}/Library/Application Support/Bitcoin/regtest/.cookie", home))
+            .map_err(|_| BitStableError::InvalidConfig("Could not determine home directory".to_string()))?;
+        
+        let cookie_content = std::fs::read_to_string(&cookie_path)
+            .map_err(|e| BitStableError::InvalidConfig(format!("Could not read regtest cookie file {}: {}", cookie_path, e)))?;
+        
+        let parts: Vec<&str> = cookie_content.trim().split(':').collect();
+        if parts.len() != 2 {
+            return Err(BitStableError::InvalidConfig("Invalid cookie format".to_string()));
+        }
+        
+        let auth = Auth::UserPass(parts[0].to_string(), parts[1].to_string());
+        Self::new(rpc_url, auth, Network::Regtest)
+    }
+
     /// Create client with default settings for mainnet
     pub fn mainnet(rpc_url: &str, username: &str, password: &str) -> Result<Self> {
         let auth = Auth::UserPass(username.to_string(), password.to_string());
@@ -657,8 +682,8 @@ impl BitcoinClient {
         Ok(None)
     }
 
-    /// Generate a new Bitcoin testnet address with private key
-    pub fn generate_testnet_address(&self) -> Result<(Address, PrivateKey)> {
+    /// Generate a new Bitcoin address with private key (works for testnet/regtest)
+    pub fn generate_address(&self) -> Result<(Address, PrivateKey)> {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let private_key = PrivateKey::new(secret_key, self.network);
@@ -670,6 +695,84 @@ impl BitcoinClient {
         let address = Address::p2wpkh(&compressed_pubkey, self.network);
         
         Ok((address, private_key))
+    }
+
+    /// Generate a new Bitcoin testnet address with private key (backward compatibility)
+    pub fn generate_testnet_address(&self) -> Result<(Address, PrivateKey)> {
+        self.generate_address()
+    }
+
+    /// Mine blocks in regtest mode (only works on regtest)
+    pub async fn mine_blocks(&self, num_blocks: u64, address: &Address) -> Result<Vec<bitcoin::BlockHash>> {
+        if self.network != Network::Regtest {
+            return Err(BitStableError::InvalidConfig("Mining only works on regtest network".to_string()));
+        }
+
+        log::info!("Mining {} blocks to address: {}", num_blocks, address);
+
+        let block_hashes = self.client.generate_to_address(num_blocks, address)
+            .map_err(|e| BitStableError::BitcoinRpcError(format!("Failed to mine blocks: {}", e)))?;
+
+        log::info!("Successfully mined {} blocks", block_hashes.len());
+        Ok(block_hashes)
+    }
+
+    /// Generate funds automatically in regtest by mining blocks
+    pub async fn generate_regtest_funds(&self, address: &Address, amount_btc: f64) -> Result<Amount> {
+        if self.network != Network::Regtest {
+            return Err(BitStableError::InvalidConfig("Auto funding only works on regtest network".to_string()));
+        }
+
+        log::info!("Generating {} BTC for address: {}", amount_btc, address);
+
+        // Mine enough blocks to generate the required amount
+        // Each block reward is 50 BTC in regtest (like early Bitcoin)
+        let blocks_needed = (amount_btc / 50.0).ceil() as u64;
+        let blocks_to_mine = std::cmp::max(blocks_needed, 101); // Need 101 blocks for coinbase maturity
+
+        log::info!("Mining {} blocks to generate funds...", blocks_to_mine);
+        self.mine_blocks(blocks_to_mine, address).await?;
+
+        // Wait a moment for the blocks to be processed
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Check the generated balance
+        let utxos = self.get_utxos(address)?;
+        let total_balance: u64 = utxos.iter().map(|utxo| utxo.amount.to_sat()).sum();
+        let balance_btc = Amount::from_sat(total_balance);
+
+        log::info!("Generated {} BTC across {} UTXOs", balance_btc.to_btc(), utxos.len());
+        Ok(balance_btc)
+    }
+
+    /// Confirm transactions by mining blocks (regtest only)
+    pub async fn confirm_transactions(&self, num_blocks: u64) -> Result<Vec<bitcoin::BlockHash>> {
+        if self.network != Network::Regtest {
+            return Err(BitStableError::InvalidConfig("Manual confirmation only works on regtest network".to_string()));
+        }
+
+        // Mine to a temporary address to confirm transactions
+        let (temp_address, _) = self.generate_address()?;
+        self.mine_blocks(num_blocks, &temp_address).await
+    }
+
+    /// Get the current regtest network difficulty
+    pub fn get_difficulty(&self) -> Result<f64> {
+        let info = self.client.get_blockchain_info()
+            .map_err(|e| BitStableError::BitcoinRpcError(e.to_string()))?;
+        Ok(info.difficulty)
+    }
+
+    /// Reset regtest blockchain (if supported by the node)
+    pub fn reset_regtest(&self) -> Result<()> {
+        if self.network != Network::Regtest {
+            return Err(BitStableError::InvalidConfig("Reset only works on regtest network".to_string()));
+        }
+
+        // This would require restarting the node in most cases
+        // For now, just log that reset was requested
+        log::warn!("Regtest reset requested - this typically requires restarting bitcoind");
+        Ok(())
     }
 
     /// Create a 2-of-3 multisig escrow address for vault collateral
@@ -955,6 +1058,17 @@ impl BitcoinConfig {
             rpc_url: "http://127.0.0.1:8332".to_string(),
             network: Network::Bitcoin,
             ..Default::default()
+        }
+    }
+
+    pub fn regtest() -> Self {
+        Self {
+            rpc_url: "http://127.0.0.1:18443".to_string(), // Regtest default port
+            rpc_username: "bitstable".to_string(),
+            rpc_password: "password".to_string(),
+            network: Network::Regtest,
+            min_confirmations: 1,
+            fee_target_blocks: 1, // Fast confirmations in regtest
         }
     }
 
