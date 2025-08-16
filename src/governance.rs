@@ -1,4 +1,4 @@
-use bitcoin::{PublicKey, Txid};
+use bitcoin::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc, Duration};
@@ -378,7 +378,7 @@ impl GovernanceSystem {
     /// Execute a passed proposal after timelock
     pub fn execute_proposal(&mut self, proposal_id: u64) -> Result<ExecutionResult> {
         // Extract proposal data first to avoid borrowing conflicts
-        let (proposal_type, execution_deadline) = {
+        let (proposal_type, _execution_deadline) = {
             let proposal = self.proposals.get(&proposal_id)
                 .ok_or_else(|| BitStableError::InvalidConfig("Proposal not found".to_string()))?;
 

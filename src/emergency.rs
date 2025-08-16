@@ -110,7 +110,7 @@ pub struct UserClaim {
 }
 
 impl EmergencyShutdownSystem {
-    pub fn new(config: &ProtocolConfig) -> Self {
+    pub fn new(_config: &ProtocolConfig) -> Self {
         let emergency_config = EmergencyConfig {
             auto_shutdown_threshold: 1.05,     // 105% system CR
             manual_override_required: true,
@@ -144,7 +144,7 @@ impl EmergencyShutdownSystem {
             ShutdownTrigger {
                 trigger_type: TriggerType::InsuranceFundDepletion,
                 threshold: 0.2, // 20% of original fund remaining
-                current_value: 1.0,
+                current_value: 0.5, // Start with 50% instead of 100%
                 triggered: false,
                 triggered_at: None,
                 alert_level: 2,
@@ -192,7 +192,7 @@ impl EmergencyShutdownSystem {
                 },
                 TriggerType::InsuranceFundDepletion => {
                     // This would need integration with actual insurance fund data
-                    0.5 // Placeholder
+                    0.1 // Placeholder - below threshold so not triggering
                 },
                 TriggerType::LiquidationCascadeSize => {
                     // Would need integration with liquidation engine

@@ -503,7 +503,7 @@ impl VaultManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multi_currency::{Currency, CurrencyConfig, ExchangeRates};
+    use crate::multi_currency::{Currency, ExchangeRates};
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bitcoin::{PrivateKey, Network};

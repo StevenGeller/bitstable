@@ -1,8 +1,8 @@
-use bitcoin::{Amount, PublicKey, Txid};
+use bitcoin::Amount;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use chrono::{DateTime, Utc, Duration};
-use crate::{BitStableError, Result, ProtocolConfig};
+use crate::{Result, ProtocolConfig};
 use crate::multi_currency::{Currency, ExchangeRates};
 use crate::{Vault, VaultManager, Oracle};
 
@@ -195,7 +195,7 @@ pub struct VaRBacktesting {
 }
 
 impl RiskMetricsSystem {
-    pub fn new(config: &ProtocolConfig) -> Self {
+    pub fn new(_config: &ProtocolConfig) -> Self {
         let risk_config = RiskConfig {
             var_confidence_level: 0.99,
             var_time_horizon_days: 1,
@@ -534,8 +534,8 @@ impl RiskMetricsSystem {
     /// Calculate liquidity metrics
     fn calculate_liquidity_metrics(
         &self,
-        vaults: &[&Vault],
-        exchange_rates: &ExchangeRates,
+        _vaults: &[&Vault],
+        _exchange_rates: &ExchangeRates,
     ) -> Result<LiquidityMetrics> {
         // This would integrate with actual market data and pool information
         Ok(LiquidityMetrics {
@@ -647,7 +647,7 @@ impl RiskMetricsSystem {
     }
 
     /// Update correlation matrices
-    fn update_correlation_matrices(&mut self, price_history: &VecDeque<(DateTime<Utc>, f64)>) -> Result<()> {
+    fn update_correlation_matrices(&mut self, _price_history: &VecDeque<(DateTime<Utc>, f64)>) -> Result<()> {
         // This would calculate correlations between different assets/factors
         // Simplified implementation for BTC auto-correlation
         let correlation_matrix = CorrelationMatrix {
@@ -870,7 +870,7 @@ impl RiskMetricsSystem {
     fn calculate_overall_risk_score(&self) -> f64 {
         let weights = [0.3, 0.2, 0.2, 0.15, 0.15]; // Weights for different risk factors
         let scores = [
-            1.0 - (self.current_metrics.system_collateral_ratio - 1.0).min(1.0).max(0.0),
+            1.0 - (self.current_metrics.system_collateral_ratio - 1.0).clamp(0.0, 1.0),
             self.current_metrics.liquidation_risk_score,
             self.current_metrics.oracle_risk_score,
             self.current_metrics.concentration_risk.herfindahl_index,

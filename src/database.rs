@@ -4,7 +4,7 @@
 use sled::{Db, Tree};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bitcoin::{Txid, PublicKey, Amount};
-use crate::{BitStableError, Result, Vault, Currency};
+use crate::{BitStableError, Result, Vault};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 
@@ -343,6 +343,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use bitcoin::hashes::Hash;
+    use crate::Currency;
     
     #[test]
     fn test_database_operations() {
@@ -378,11 +379,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = DatabaseManager::new(temp_dir.path()).unwrap();
         
-        // Save multiple price records
+        // Save multiple price records with different timestamps
         for i in 0..5 {
             let price = OraclePriceRecord {
                 price_usd: 50000.0 + (i as f64 * 100.0),
-                timestamp: Utc::now(),
+                timestamp: Utc::now() + chrono::Duration::seconds(i as i64),
                 participating_oracles: 3,
                 total_oracles: 5,
             };

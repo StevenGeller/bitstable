@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(agg_sig.participating_oracles.len(), 3);
         assert_eq!(agg_sig.threshold, 3);
         assert_eq!(agg_sig.total_oracles, 5);
-        assert_eq!(agg_sig.consensus_price, 50010.0); // Median of 50010, 50020, 50030
+        assert_eq!(agg_sig.consensus_price, 50020.0); // Median of 50010, 50020, 50030
     }
     
     #[test]

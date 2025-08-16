@@ -149,12 +149,12 @@ async fn run_liquidation_scan(
     max_liquidations: usize,
     dry_run: bool,
 ) -> Result<LiquidationResults> {
-    // Get current price
-    let price = protocol.oracle_network.get_consensus_price().await?;
+    // Get current exchange rates
+    let exchange_rates = protocol.oracle_network.get_exchange_rates();
     
     // Scan for liquidation opportunities
     let vaults = protocol.vault_manager.list_vaults();
-    protocol.liquidation_engine.scan_for_liquidations(&vaults, price);
+    protocol.liquidation_engine.scan_for_liquidations(&vaults, &exchange_rates);
     
     let opportunities = protocol.liquidation_engine.get_liquidation_opportunities();
     

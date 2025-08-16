@@ -25,8 +25,11 @@ pub struct CustodyManager {
     liquidator_privkey: Option<PrivateKey>,
     
     // Enhanced governance-controlled key management
+    #[allow(dead_code)]
     governance_system: GovernanceSystem,
+    #[allow(dead_code)]
     key_rotation_in_progress: bool,
+    #[allow(dead_code)]
     pending_key_updates: Vec<KeyUpdate>,
     
     // Active escrow contracts
@@ -167,7 +170,7 @@ impl CustodyManager {
         protocol_keys: &[PublicKey],
     ) -> Result<()> {
         // In production, these would be real geographic keyholders
-        let regions = vec![
+        let regions = [
             "North America",
             "Europe", 
             "Asia Pacific",

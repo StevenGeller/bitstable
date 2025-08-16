@@ -82,8 +82,11 @@ impl MultiCurrencyStableManager {
             ));
         }
 
-        // Burn from sender and track which vaults
-        let burned_vaults = self.burn_stable(from, currency.clone(), amount)?;
+        // Transfer from sender position without affecting total supply
+        let from_position = self.positions.get_mut(&from)
+            .ok_or_else(|| BitStableError::InvalidConfig("Sender position not found".to_string()))?;
+        
+        let burned_vaults = from_position.burn_stable(currency.clone(), amount)?;
         
         // Mint to receiver using the same vault backing
         let to_position = self.get_or_create_position(to);

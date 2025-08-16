@@ -18,6 +18,7 @@ pub mod governance;
 pub mod stability_pool;
 pub mod emergency;
 pub mod risk_metrics;
+pub mod proof_of_reserves;
 
 use bitcoin::{Amount, PublicKey, Txid};
 // Re-export for public use
@@ -38,6 +39,7 @@ pub use governance::{GovernanceSystem, Proposal, ProposalType, ExecutionResult};
 pub use stability_pool::{StabilityPool, StabilityLiquidation, DepositorInfo};
 pub use emergency::{EmergencyShutdownSystem, ShutdownState, AlertAction};
 pub use risk_metrics::{RiskMetricsSystem, SystemRiskMetrics, RiskDashboard, SystemHealth};
+pub use proof_of_reserves::{ProofOfReservesSystem, ReservesCommitment, MerkleProof, FraudProof};
 
 #[derive(Debug)]
 pub struct BitStableProtocol {
@@ -52,6 +54,7 @@ pub struct BitStableProtocol {
     pub stability_pool: StabilityPool,
     pub emergency_system: EmergencyShutdownSystem,
     pub risk_metrics: RiskMetricsSystem,
+    pub proof_of_reserves: ProofOfReservesSystem,
     pub bitcoin_client: Option<BitcoinClient>,
 }
 
@@ -72,6 +75,7 @@ impl BitStableProtocol {
             stability_pool: StabilityPool::new(&config),
             emergency_system: EmergencyShutdownSystem::new(&config),
             risk_metrics: RiskMetricsSystem::new(&config),
+            proof_of_reserves: ProofOfReservesSystem::new(),
             bitcoin_client: None,
             config,
         })
@@ -102,7 +106,7 @@ impl BitStableProtocol {
         
         // Calculate liquidation threshold price
         let vault = self.vault_manager.get_vault(vault_id)?;
-        let liquidation_price = vault.calculate_liquidation_price(&currency, &exchange_rates, 1.5);
+        let liquidation_price = vault.calculate_liquidation_price(&currency, exchange_rates, 1.5);
         
         // Create escrow contract for Bitcoin custody
         let escrow_contract = self.custody_manager.create_vault_escrow(
@@ -164,7 +168,7 @@ impl BitStableProtocol {
         let btc_price = exchange_rates.get_btc_price(&Currency::USD).unwrap_or(0.0);
         if !self.custody_manager.can_liquidate_vault(vault_id, btc_price) {
             return Err(BitStableError::LiquidationNotPossible {
-                ratio: vault.collateral_ratio(&exchange_rates)
+                ratio: vault.collateral_ratio(exchange_rates)
             });
         }
 
@@ -172,7 +176,7 @@ impl BitStableProtocol {
         self.liquidation_engine.liquidate(vault_id, liquidator, btc_price).await?;
         
         // Calculate total debt in USD for liquidation settlement
-        let total_debt_usd = vault.debts.total_debt_in_usd(&exchange_rates);
+        let total_debt_usd = vault.debts.total_debt_in_usd(exchange_rates);
         
         // Create and sign liquidation settlement transaction
         let liquidation_tx = self.custody_manager.execute_liquidation(
@@ -223,7 +227,7 @@ impl BitStableProtocol {
         let vault = self.vault_manager.get_vault(vault_id)?;
         let exchange_rates = self.oracle_network.get_exchange_rates();
         
-        Ok(vault.collateral_ratio(&exchange_rates))
+        Ok(vault.collateral_ratio(exchange_rates))
     }
 
     /// Get escrow contract information for a vault

@@ -65,7 +65,7 @@ pub struct RewardSnapshot {
 }
 
 impl StabilityPool {
-    pub fn new(config: &ProtocolConfig) -> Self {
+    pub fn new(_config: &ProtocolConfig) -> Self {
         let pool_config = StabilityPoolConfig {
             min_deposit_amount: 100.0,              // $100 minimum
             withdrawal_delay_hours: 24,             // 24 hour withdrawal delay
@@ -195,7 +195,7 @@ impl StabilityPool {
         vault_id: Txid,
         liquidated_debt: HashMap<Currency, f64>,
         collateral_amount: Amount,
-        exchange_rates: &ExchangeRates,
+        _exchange_rates: &ExchangeRates,
     ) -> Result<StabilityLiquidation> {
         let mut participants = Vec::new();
         let mut remaining_debt = liquidated_debt.clone();

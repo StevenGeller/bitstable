@@ -1,5 +1,5 @@
 use clap::Parser;
-use bitstable::{ProtocolConfig, Result, oracle::OracleNetwork};
+use bitstable::{ProtocolConfig, Result, oracle::MultiCurrencyOracleNetwork};
 use tokio::time::{sleep, Duration};
 
 #[derive(Parser)]
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     println!("Update interval: {}s", cli.update_interval);
 
     // Initialize oracle network
-    let mut oracle_network = OracleNetwork::new(&config)?;
+    let mut oracle_network = MultiCurrencyOracleNetwork::new(&config)?;
 
     println!("📡 Configured {} oracle endpoints", config.oracle_endpoints.len());
     for endpoint in &config.oracle_endpoints {
@@ -76,18 +76,22 @@ async fn main() -> Result<()> {
             _ = sleep(Duration::from_secs(cli.update_interval)) => {
                 update_counter += 1;
                 
-                match oracle_network.get_consensus_price().await {
-                    Ok(price) => {
-                        log::info!("Price update #{}: ${:.2}", update_counter, price);
+                match oracle_network.get_consensus_prices().await {
+                    Ok(exchange_rates) => {
+                        if let Some(btc_price) = exchange_rates.get_btc_price(&bitstable::Currency::USD) {
+                            log::info!("Price update #{}: ${:.2}", update_counter, btc_price);
+                        }
                         
                         if let Some(consensus) = oracle_network.get_latest_consensus() {
-                            println!("💰 Update #{}: ${:.2} (from {}/{} oracles) at {}", 
-                                update_counter,
-                                price, 
-                                consensus.participating_oracles,
-                                consensus.total_oracles,
-                                consensus.timestamp.format("%H:%M:%S")
-                            );
+                            if let Some(btc_price_display) = consensus.btc_prices.get(&bitstable::Currency::USD) {
+                                println!("💰 Update #{}: ${:.2} (from {}/{} oracles) at {}", 
+                                    update_counter,
+                                    btc_price_display, 
+                                    consensus.participating_oracles,
+                                    consensus.total_oracles,
+                                    consensus.timestamp.format("%H:%M:%S")
+                                );
+                            }
                         }
                         
                         // In a real implementation, broadcast this price to the network
@@ -110,7 +114,9 @@ async fn main() -> Result<()> {
 
     println!("📊 Oracle Statistics:");
     if let Some(latest) = oracle_network.get_latest_consensus() {
-        println!("   Last Price: ${:.2}", latest.price_usd);
+        if let Some(btc_price) = latest.btc_prices.get(&bitstable::Currency::USD) {
+            println!("   Last Price: ${:.2}", btc_price);
+        }
         println!("   Total Updates: {}", update_counter);
         println!("   Final Oracle Participation: {}/{}", 
             latest.participating_oracles, 

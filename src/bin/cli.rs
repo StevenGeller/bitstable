@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use bitcoin::{Amount, PublicKey, Txid};
 use bitcoin::hashes::Hash;
-use bitstable::{BitStableProtocol, ProtocolConfig, BitcoinConfig, Result};
+use bitstable::{BitStableProtocol, ProtocolConfig, BitcoinConfig, Result, Currency};
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -301,7 +301,7 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
             let collateral = Amount::from_btc(collateral_btc)
                 .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
             
-            let escrow_contract = protocol.open_vault(owner_pubkey, collateral, stable_amount).await?;
+            let escrow_contract = protocol.open_vault(owner_pubkey, collateral, Currency::USD, stable_amount).await?;
             
             println!("✅ Created vault: {}", escrow_contract.vault_id);
             println!("   Collateral: {} BTC", collateral_btc);
@@ -327,11 +327,11 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
                 }
                 
                 // Get current price for ratio calculation
-                let price = protocol.oracle_network.get_consensus_price().await.unwrap_or(50000.0);
-                let ratio = vault.collateral_ratio(price);
+                let exchange_rates = protocol.oracle_network.get_exchange_rates();
+                let ratio = vault.collateral_ratio(&exchange_rates);
                 
                 // Filter liquidatable if specified
-                if liquidatable && !vault.is_liquidatable(price, protocol.config.liquidation_threshold) {
+                if liquidatable && ratio >= protocol.config.liquidation_threshold {
                     continue;
                 }
                 
@@ -343,12 +343,13 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
                     "🟢"
                 };
                 
+                let debt = vault.debts.total_debt_in_usd(&exchange_rates);
                 println!("{} {:<64} {:<34} {:<12} ${:<11} {:.2}%", 
                     status,
                     vault.id,
                     vault.owner.to_string()[..34].to_string(),
                     format!("{:.8}", vault.collateral_btc.to_btc()),
-                    vault.stable_debt_usd,
+                    debt,
                     ratio * 100.0
                 );
             }
@@ -358,21 +359,24 @@ async fn handle_vault_command(protocol: &mut BitStableProtocol, action: VaultCom
             let vault_id = bitcoin::Txid::from_str(&vault_id)
                 .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))?;
             let vault = protocol.vault_manager.get_vault(vault_id)?;
-            let price = protocol.oracle_network.get_consensus_price().await.unwrap_or(50000.0);
+            let exchange_rates = protocol.oracle_network.get_exchange_rates();
             
             println!("🏦 Vault Details:");
             println!("   ID: {}", vault.id);
             println!("   Owner: {}", vault.owner);
-            println!("   Collateral: {} BTC (${:.2})", vault.collateral_btc.to_btc(), vault.collateral_btc.to_btc() * price);
-            println!("   Stable Debt: ${}", vault.stable_debt_usd);
-            println!("   Collateral Ratio: {:.2}%", vault.collateral_ratio(price) * 100.0);
+            let btc_price = exchange_rates.get_btc_price(&Currency::USD).unwrap_or(0.0);
+            let debt = vault.debts.total_debt_in_usd(&exchange_rates);
+            println!("   Collateral: {} BTC (${:.2})", vault.collateral_btc.to_btc(), vault.collateral_btc.to_btc() * btc_price);
+            println!("   Stable Debt: ${}", debt);
+            println!("   Collateral Ratio: {:.2}%", vault.collateral_ratio(&exchange_rates) * 100.0);
             println!("   Status: {:?}", vault.state);
             println!("   Created: {}", vault.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
             println!("   Last Fee Update: {}", vault.last_fee_update.format("%Y-%m-%d %H:%M:%S UTC"));
             
-            let health = if vault.collateral_ratio(price) >= protocol.config.min_collateral_ratio {
+            let ratio = vault.collateral_ratio(&exchange_rates);
+            let health = if ratio >= protocol.config.min_collateral_ratio {
                 "Healthy 🟢"
-            } else if vault.collateral_ratio(price) >= protocol.config.liquidation_threshold {
+            } else if ratio >= protocol.config.liquidation_threshold {
                 "At Risk 🟡"
             } else {
                 "Liquidatable 🔴"
@@ -446,9 +450,11 @@ async fn handle_oracle_command(protocol: &mut BitStableProtocol, action: OracleC
         OracleCommands::Price => {
             println!("🔍 Fetching Bitcoin price consensus...");
             
-            match protocol.oracle_network.get_consensus_price().await {
-                Ok(price) => {
-                    println!("💰 Current BTC Price: ${:.2}", price);
+            match protocol.oracle_network.get_consensus_prices().await {
+                Ok(exchange_rates) => {
+                    if let Some(btc_price) = exchange_rates.get_btc_price(&Currency::USD) {
+                        println!("💰 Current BTC Price: ${:.2}", btc_price);
+                    }
                     
                     if let Some(consensus) = protocol.oracle_network.get_latest_consensus() {
                         println!("   Consensus from {}/{} oracles", 
@@ -468,7 +474,9 @@ async fn handle_oracle_command(protocol: &mut BitStableProtocol, action: OracleC
             println!("🔮 Oracle Network Status:");
             
             if let Some(consensus) = protocol.oracle_network.get_latest_consensus() {
-                println!("   Last Price: ${:.2}", consensus.price_usd);
+                if let Some(btc_price) = consensus.btc_prices.get(&Currency::USD) {
+                    println!("   Last Price: ${:.2}", btc_price);
+                }
                 println!("   Participating Oracles: {}/{}", 
                     consensus.participating_oracles, 
                     consensus.total_oracles
@@ -510,8 +518,12 @@ async fn handle_oracle_command(protocol: &mut BitStableProtocol, action: OracleC
                 println!("Testing all oracles...");
             }
             
-            match protocol.oracle_network.get_consensus_price().await {
-                Ok(price) => println!("✅ All oracles responding. Current price: ${:.2}", price),
+            match protocol.oracle_network.get_consensus_prices().await {
+                Ok(exchange_rates) => {
+                    if let Some(btc_price) = exchange_rates.get_btc_price(&Currency::USD) {
+                        println!("✅ All oracles responding. Current price: ${:.2}", btc_price);
+                    }
+                }
                 Err(e) => println!("❌ Oracle test failed: {}", e),
             }
         }
@@ -525,10 +537,10 @@ async fn handle_liquidation_command(protocol: &mut BitStableProtocol, action: Li
         LiquidationCommands::Scan => {
             println!("🔍 Scanning for liquidation opportunities...");
             
-            let price = protocol.oracle_network.get_consensus_price().await?;
+            let exchange_rates = protocol.oracle_network.get_exchange_rates();
             let vaults = protocol.vault_manager.list_vaults();
             
-            protocol.liquidation_engine.scan_for_liquidations(&vaults, price);
+            protocol.liquidation_engine.scan_for_liquidations(&vaults, &exchange_rates);
             let opportunities = protocol.liquidation_engine.get_liquidation_opportunities();
             
             if opportunities.is_empty() {
@@ -602,15 +614,15 @@ async fn handle_liquidation_command(protocol: &mut BitStableProtocol, action: Li
     Ok(())
 }
 
-async fn handle_stable_command(protocol: &mut BitStableProtocol, action: StableCommands) -> Result<()> {
+async fn handle_stable_command(_protocol: &mut BitStableProtocol, action: StableCommands) -> Result<()> {
     // Note: This would need access to StableManager, which should be added to BitStableProtocol
     match action {
-        StableCommands::Mint { amount, vault_id, holder } => {
+        StableCommands::Mint { amount, vault_id: _, holder: _ } => {
             println!("🪙 Minting {} USD stable value", amount);
             println!("✅ Stable value minted successfully!");
         }
         
-        StableCommands::Burn { amount, holder } => {
+        StableCommands::Burn { amount, holder: _ } => {
             println!("🔥 Burning {} USD stable value", amount);
             println!("✅ Stable value burned successfully!");
         }
@@ -632,7 +644,7 @@ async fn handle_stable_command(protocol: &mut BitStableProtocol, action: StableC
     Ok(())
 }
 
-async fn handle_network_command(protocol: &mut BitStableProtocol, action: NetworkCommands) -> Result<()> {
+async fn handle_network_command(_protocol: &mut BitStableProtocol, action: NetworkCommands) -> Result<()> {
     match action {
         NetworkCommands::Start { listen } => {
             println!("🌐 Starting BitStable network node on {}", listen);
@@ -687,7 +699,7 @@ async fn handle_custody_command(protocol: &mut BitStableProtocol, action: Custod
             println!("   No active contracts found");
         }
         
-        CustodyCommands::Settlements { limit } => {
+        CustodyCommands::Settlements { limit: _ } => {
             println!("⚖️  Recent Settlements:");
             println!("{:<66} {:<34} {:<12} {:<12}", "Vault ID", "Liquidator", "Amount", "Date");
             println!("{}", "-".repeat(130));
@@ -725,7 +737,8 @@ async fn handle_status_command(protocol: &BitStableProtocol) -> Result<()> {
     let vaults = protocol.vault_manager.list_vaults();
     let total_vaults = vaults.len();
     let total_collateral: f64 = vaults.iter().map(|v| v.collateral_btc.to_btc()).sum();
-    let total_debt: f64 = vaults.iter().map(|v| v.stable_debt_usd).sum();
+    let exchange_rates = protocol.oracle_network.get_exchange_rates();
+    let total_debt: f64 = vaults.iter().map(|v| v.debts.total_debt_in_usd(&exchange_rates)).sum();
     
     println!("\n🏦 Vault Statistics:");
     println!("   Total Vaults: {}", total_vaults);
@@ -735,7 +748,9 @@ async fn handle_status_command(protocol: &BitStableProtocol) -> Result<()> {
     // Oracle status
     println!("\n🔮 Oracle Network:");
     if let Some(consensus) = protocol.oracle_network.get_latest_consensus() {
-        println!("   Current Price: ${:.2}", consensus.price_usd);
+        if let Some(btc_price) = consensus.btc_prices.get(&Currency::USD) {
+            println!("   Current Price: ${:.2}", btc_price);
+        }
         println!("   Active Oracles: {}/{}", consensus.participating_oracles, consensus.total_oracles);
         println!("   Last Update: {}", consensus.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
     } else {
@@ -762,6 +777,7 @@ async fn handle_status_command(protocol: &BitStableProtocol) -> Result<()> {
 }
 
 // Helper functions for parsing
+#[allow(dead_code)]
 fn parse_amount(s: &str) -> Result<Amount> {
     Amount::from_str_in(s, bitcoin::Denomination::Bitcoin)
         .map_err(|e| bitstable::BitStableError::InvalidConfig(e.to_string()))

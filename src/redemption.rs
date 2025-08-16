@@ -2,7 +2,7 @@ use bitcoin::{Amount, PublicKey, Txid};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-use crate::{BitStableError, Result, ProtocolConfig, VaultManager, Vault};
+use crate::{BitStableError, Result, ProtocolConfig, VaultManager};
 use crate::multi_currency::{Currency, ExchangeRates};
 
 /// Direct redemption engine for maintaining stablecoin peg
@@ -15,6 +15,7 @@ pub struct RedemptionEngine {
     redemption_history: Vec<RedemptionRecord>,
     base_redemption_fee: f64,          // Base 0.5% fee
     dynamic_fee_multiplier: f64,       // Multiplier based on demand
+    #[allow(dead_code)]
     redemption_pool: HashMap<Currency, f64>, // Available for immediate redemption
 }
 
@@ -210,7 +211,7 @@ impl RedemptionEngine {
     }
     
     /// Calculate dynamic redemption fee based on demand
-    fn calculate_dynamic_redemption_fee(&self, currency: &Currency, amount: f64) -> f64 {
+    fn calculate_dynamic_redemption_fee(&self, currency: &Currency, _amount: f64) -> f64 {
         let daily_limit = self.daily_redemption_limits.get(currency).copied().unwrap_or(1_000_000.0);
         let daily_used = self.daily_redemption_used.get(currency).copied().unwrap_or(0.0);
         let utilization = daily_used / daily_limit;
