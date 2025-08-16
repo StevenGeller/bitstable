@@ -62,5 +62,8 @@ pkill -f "liquidator-bot" 2>/dev/null || true
 echo
 echo -e "${GREEN}🏁 BitStable Testnet System Stopped Successfully!${NC}"
 echo
+echo -e "${YELLOW}Note:${NC} Some services may require force termination (SIGKILL)"
+echo -e "${YELLOW}      This is normal for persistent database connections"
+echo
 echo -e "${YELLOW}Logs preserved in:${NC} ${BITSTABLE_DIR}/logs/"
 echo -e "${YELLOW}To restart:${NC} ./scripts/start_testnet.sh"

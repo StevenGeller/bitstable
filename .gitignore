@@ -20,9 +20,11 @@ bitstable_data/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs and runtime directories
 *.log
 test_output.log
+logs/
+pids/
 
 # Local config
 config.toml

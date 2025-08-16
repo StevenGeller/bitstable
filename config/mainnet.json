@@ -1,11 +1,19 @@
 {
-  "network": "Bitcoin",
+  "network": "bitcoin",
   "min_collateral_ratio": 2.0,
   "liquidation_threshold": 1.5,
+  "liquidation_penalty": 0.05,
   "stability_fee_apr": 0.025,
   "oracle_threshold": 5,
+  "oracle_timeout_seconds": 30,
+  "database_path": "./bitstable_mainnet.db",
+  "progressive_liquidation_threshold": 1.80,
+  "partial_liquidation_25": 1.80,
+  "partial_liquidation_50": 1.65,
+  "partial_liquidation_75": 1.50,
+  "insurance_fund_fee_rate": 0.01,
   "bitcoin_config": {
-    "network": "Bitcoin",
+    "network": "bitcoin",
     "rpc_url": "http://127.0.0.1:8332",
     "rpc_user": "bitstable_mainnet",
     "rpc_password": "CHANGE_THIS_SECURE_PASSWORD",
@@ -15,32 +23,32 @@
     {
       "name": "coinbase_pro",
       "url": "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
-      "weight": 1.5
+      "pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
     {
       "name": "bitstamp",
       "url": "https://www.bitstamp.net/api/v2/ticker/btcusd/",
-      "weight": 1.5
+      "pubkey": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
     },
     {
       "name": "kraken",
       "url": "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
-      "weight": 1.5
+      "pubkey": "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"
     },
     {
       "name": "binance",
       "url": "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
-      "weight": 1.0
+      "pubkey": "0296b538e853519c766d2f7e5a7ae66b88d87a3055ee0e24d2c1d4a9e68a7885d0"
     },
     {
       "name": "gemini",
       "url": "https://api.gemini.com/v1/pubticker/btcusd",
-      "weight": 1.0
+      "pubkey": "03c6103b3b83e4a24a0e33a4df246ef11772f9992663db0c35759a5e2ebf68d8e9"
     },
     {
       "name": "ftx",
       "url": "https://ftx.com/api/markets/BTC/USD",
-      "weight": 0.8
+      "pubkey": "03f17f52151ebef6c7334ea693a70b1e84eba73dc0e0c4fd95aed31c1b9e11b7d0"
     }
   ],
   "supported_currencies": [
@@ -48,37 +56,67 @@
       "code": "USD",
       "name": "US Dollar",
       "decimals": 2,
-      "stability_fee_modifier": 1.0
+      "stability_fee_apr": 0.025,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 2.0,
+      "liquidation_threshold": 1.5,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "EUR",
       "name": "Euro", 
       "decimals": 2,
-      "stability_fee_modifier": 1.1
+      "stability_fee_apr": 0.0275,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 2.0,
+      "liquidation_threshold": 1.5,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "GBP",
       "name": "British Pound",
       "decimals": 2,
-      "stability_fee_modifier": 1.15
+      "stability_fee_apr": 0.029,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 2.0,
+      "liquidation_threshold": 1.5,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "JPY",
       "name": "Japanese Yen",
       "decimals": 0,
-      "stability_fee_modifier": 1.05
+      "stability_fee_apr": 0.026,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 2.0,
+      "liquidation_threshold": 1.5,
+      "min_mint_amount": 10000.0,
+      "enabled": true
     },
     {
       "code": "NGN",
       "name": "Nigerian Naira",
       "decimals": 2,
-      "stability_fee_modifier": 1.25
+      "stability_fee_apr": 0.031,
+      "liquidation_penalty": 0.15,
+      "min_collateral_ratio": 2.25,
+      "liquidation_threshold": 1.75,
+      "min_mint_amount": 10000.0,
+      "enabled": true
     },
     {
       "code": "MXN",
       "name": "Mexican Peso",
       "decimals": 2,
-      "stability_fee_modifier": 1.2
+      "stability_fee_apr": 0.030,
+      "liquidation_penalty": 0.14,
+      "min_collateral_ratio": 2.1,
+      "liquidation_threshold": 1.6,
+      "min_mint_amount": 1000.0,
+      "enabled": true
     }
   ]
 }

@@ -1,11 +1,19 @@
 {
-  "network": "Testnet",
+  "network": "testnet",
   "min_collateral_ratio": 1.75,
   "liquidation_threshold": 1.25,
+  "liquidation_penalty": 0.05,
   "stability_fee_apr": 0.02,
   "oracle_threshold": 3,
+  "oracle_timeout_seconds": 30,
+  "database_path": "./bitstable_testnet.db",
+  "progressive_liquidation_threshold": 1.30,
+  "partial_liquidation_25": 1.30,
+  "partial_liquidation_50": 1.275,
+  "partial_liquidation_75": 1.25,
+  "insurance_fund_fee_rate": 0.01,
   "bitcoin_config": {
-    "network": "Testnet",
+    "network": "testnet",
     "rpc_url": "http://127.0.0.1:18332",
     "rpc_user": "bitstable",
     "rpc_password": "change_this_password",
@@ -15,22 +23,22 @@
     {
       "name": "coinbase",
       "url": "https://api.coinbase.com/v2/exchange-rates?currency=BTC",
-      "weight": 1.0
+      "pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
     {
       "name": "bitstamp", 
       "url": "https://www.bitstamp.net/api/v2/ticker/btcusd/",
-      "weight": 1.0
+      "pubkey": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
     },
     {
       "name": "kraken",
       "url": "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
-      "weight": 1.0
+      "pubkey": "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"
     },
     {
       "name": "coindesk",
       "url": "https://api.coindesk.com/v1/bpi/currentprice.json",
-      "weight": 0.5
+      "pubkey": "0296b538e853519c766d2f7e5a7ae66b88d87a3055ee0e24d2c1d4a9e68a7885d0"
     }
   ],
   "supported_currencies": [
@@ -38,25 +46,45 @@
       "code": "USD",
       "name": "US Dollar", 
       "decimals": 2,
-      "stability_fee_modifier": 1.0
+      "stability_fee_apr": 0.02,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 1.75,
+      "liquidation_threshold": 1.25,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "EUR",
       "name": "Euro",
-      "decimals": 2, 
-      "stability_fee_modifier": 1.1
+      "decimals": 2,
+      "stability_fee_apr": 0.022,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 1.75,
+      "liquidation_threshold": 1.25,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "GBP",
       "name": "British Pound",
       "decimals": 2,
-      "stability_fee_modifier": 1.15
+      "stability_fee_apr": 0.023,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 1.75,
+      "liquidation_threshold": 1.25,
+      "min_mint_amount": 100.0,
+      "enabled": true
     },
     {
       "code": "JPY", 
       "name": "Japanese Yen",
       "decimals": 0,
-      "stability_fee_modifier": 1.05
+      "stability_fee_apr": 0.021,
+      "liquidation_penalty": 0.13,
+      "min_collateral_ratio": 1.75,
+      "liquidation_threshold": 1.25,
+      "min_mint_amount": 10000.0,
+      "enabled": true
     }
   ]
 }

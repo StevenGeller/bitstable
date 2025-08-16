@@ -24,20 +24,36 @@ echo "2. Check oracle network:"
 ./target/release/bitstable-cli oracle status
 
 echo
-echo "3. Create a test vault:"
+echo "3. Try to create a test vault:"
 echo "   (2 BTC collateral → $80,000 USD stablecoin)"
-./target/release/bitstable-cli vault create \
+if ./target/release/bitstable-cli vault create \
   --collateral-btc 2.0 \
   --stable-amount 80000 \
-  --owner $DEMO_KEY
-
-echo
-echo "4. List all vaults:"
-./target/release/bitstable-cli vault list
-
-echo
-echo "5. Check for liquidation opportunities:"
-./target/release/bitstable-cli liquidate scan
+  --owner $DEMO_KEY 2>/dev/null; then
+    echo "✅ Vault created successfully!"
+    
+    echo
+    echo "4. List all vaults:"
+    ./target/release/bitstable-cli vault list
+    
+    echo
+    echo "5. Check for liquidation opportunities:"
+    ./target/release/bitstable-cli liquidate scan
+else
+    echo "❌ Vault creation failed (expected - no oracle price data)"
+    echo "   This is normal behavior without running oracles."
+    echo
+    echo "💡 To create vaults, you need:"
+    echo "   • Running oracle network with price consensus"
+    echo "   • Use: ./scripts/start_testnet.sh for full system"
+    echo
+    echo "4. View available vault commands:"
+    ./target/release/bitstable-cli vault --help
+    
+    echo
+    echo "5. View liquidation monitoring:"
+    ./target/release/bitstable-cli liquidate --help
+fi
 
 echo
 echo "✅ Quick start complete!"
