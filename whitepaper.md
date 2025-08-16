@@ -24,35 +24,52 @@ Collateralization ratio: *CR* = (*B* × *P_BTC*) / *D_total*
 
 Safety condition: *CR* ≥ *M* at issuance, liquidation at *CR* < *L*.
 
-## 3. Oracle Network
+## 3. Enhanced Oracle Network
 
-Oracle consensus prevents price manipulation through graduated circuit breaker requiring increasing agreement for larger movements.
+Oracle consensus prevents price manipulation through multi-source aggregation, bonding requirements, and graduated circuit breakers requiring increasing agreement for larger movements.
 
-Circuit breaker thresholds:
-- Δ*P* ≤ 10%: requires 5/7 oracles
-- 10% < Δ*P* ≤ 20%: requires 7/7 oracles  
-- Δ*P* > 20%: requires governance override
+**Multi-Source Aggregation**: System aggregates from 20+ heterogeneous price sources including exchanges, market makers, and decentralized oracles to prevent single-point-of-failure.
+
+**Oracle Bonding**: Each oracle stakes bond *B_oracle* = 2 × *max_daily_volume* × *P_BTC* / 365. Bond slashed for:
+- Deviation >5% from consensus: 10% slash
+- Offline >1 hour: 5% slash  
+- Manipulation evidence: 100% slash
+
+Circuit breaker thresholds with bonded consensus:
+- Δ*P* ≤ 10%: requires 15/20+ bonded oracles
+- 10% < Δ*P* ≤ 20%: requires 18/20+ bonded oracles
+- Δ*P* > 20%: requires governance override + emergency committee
 
 Time-weighted average price over window *T*: *TWAP* = (1/*T*) ∫_0^T *P*(*t*) *dt*
 
-Oracle quality score *Q_i* = Σ_t *w_t* × *accuracy_t* with exponential decay weights *w_t* = *e^(-λt)*.
+**Freshness Requirements**: Price data stale if >30s old. Automatic failover to backup oracles within 10s.
 
-## 4. Progressive Liquidation
+**Reputation Model**: Oracle quality score *Q_i* = Σ_t *w_t* × *accuracy_t* × *uptime_t* with exponential decay weights *w_t* = *e^(-λt)*. Reputation affects bonding requirements and reward distribution.
 
-Progressive liquidation prevents cascade failures through staged collateral seizure.
+## 4. Progressive Liquidation with Cascade Prevention
 
-Liquidation stages for vault with *CR*:
+Progressive liquidation prevents cascade failures through staged collateral seizure with rate limiting and smoothing mechanisms.
+
+**Liquidation Stages** for vault with *CR*:
 - *CR* ≥ 130%: Safe
 - 127.5% ≤ *CR* < 130%: Liquidate 25%
 - 125% ≤ *CR* < 127.5%: Liquidate 50%  
 - 125% ≤ *CR* < 125%: Liquidate 75%
 - *CR* < 125%: Full liquidation
 
+**Cascade Prevention**: Maximum liquidation volume per block: *V_max* = min(0.1 × *supply_total*, $10M equivalent)
+
+**Rate Limiting**: Individual vault liquidation rate *R_vault* ≤ 50% per hour to prevent flash crashes.
+
+**Smoothing Function**: Liquidation penalty *γ*(*V*) = *γ_base* + *k* × log(1 + *V*/*V_threshold*) where *γ_base* = 5%
+
 Liquidation amount at stage *s*: *A_s* = *p_s* × *D_total* / *P_BTC*
 
-Liquidator bonus: *B_bonus* = *γ* × *A_liquidated* where *γ* = 5%
+Liquidator bonus: *B_bonus* = *γ*(*V*) × *A_liquidated*
 
-Total seized: *B_seized* = *A_liquidated* × (1 + *γ*)
+Total seized: *B_seized* = *A_liquidated* × (1 + *γ*(*V*))
+
+**Emergency Breaks**: Automatic 1-hour trading halt if >20% of system collateral liquidated in 10 minutes.
 
 ## 5. Incentive Structure
 
@@ -83,21 +100,40 @@ Emergency triggers:
 
 Settlement pro-rata distribution: *payout_i* = *claim_i* / Σ*claims* × *collateral_total*
 
-## 8. Solvency Verification
+## 8. Proof-of-Reserves and Solvency Verification
 
-System collateralization: *CR_system* = (Σ*B_i* × *P_BTC*) / (Σ*D_i*)
+**Continuous Proof-of-Reserves**: Every Bitcoin block contains Merkle tree commitment to all vault states.
 
-Light client verification requires only vault summaries and price data.
+Merkle tree construction: *M_root* = MerkleRoot({*H*(*vault_i* ‖ *B_i* ‖ *D_i* ‖ *timestamp*)})
 
-Fraud proof: if ∃ vault with *CR* < *L* not liquidated, any node can submit proof of under-collateralization.
+Bitcoin OP_RETURN commitment: *H*(*M_root* ‖ *block_height* ‖ *system_state*)
 
-## 9. Multi-Currency
+**Light Client Verification**: Users verify vault inclusion via Merkle proof + Bitcoin block validation.
+
+**Solvency Formula**: *CR_system* = (Σ*B_i* × *P_BTC*) / (Σ*D_i*)
+
+**Real-time Auditability**: 
+- Vault states: *S_vault* = {*B_i*, **D_i**, *timestamp_i*, *signature_i*}
+- System state: *S_system* = {*CR_system*, *total_debt*, *oracle_health*, *insurance_balance*}
+- Proof generation: *π* = (*M_proof*, *inclusion_path*, *block_header*)
+
+**Fraud Proofs**: If ∃ vault with *CR* < *L* not liquidated, any node can submit cryptographic proof *π_fraud* = (*vault_state*, *timestamp*, *oracle_prices*, *merkle_proof*) to trigger automatic liquidation.
+
+**Transparency Guarantees**: All vault operations publicly verifiable without revealing operator identity.
+
+## 9. Multi-Currency with Simplified Implementation
+
+**Phased Deployment**: Launch with USD-only implementation, expanding to EUR, GBP, JPY based on adoption.
 
 Vault *i* maintains debt vector **D_i** = {*d_USD*, *d_EUR*, *d_GBP*} sharing collateral *B_i*.
 
-Constraint: (Σ_k *d_k* × *r_k*) / (*B_i* × *P_BTC*) ≥ *M*
+**Unified Constraint**: (Σ_k *d_k* × *r_k*) / (*B_i* × *P_BTC*) ≥ *M*
 
-Cross-currency liquidation priority by *CR* per currency: *CR_k* = (*B_i* × *P_BTC*) / (*d_k* × *r_k*)
+**Currency-Specific Risk**: Cross-currency liquidation priority by *CR* per currency: *CR_k* = (*B_i* × *P_BTC*) / (*d_k* × *r_k*)
+
+**Exchange Rate Oracle**: Separate bonded oracle network for FX rates with similar reputation and slashing mechanisms.
+
+**Complexity Reduction**: Initial deployment targets major currency pairs (USD, EUR) before expanding to emerging markets to reduce oracle and liquidity complexity.
 
 ## 10. Privacy
 
@@ -117,10 +153,26 @@ Cost to destabilize: *C_attack* = 0.5 × Σ*B_i* × *P_BTC*
 
 **System Stability**: For *n* independent vaults, failure probability *P_fail* ≈ *e^(-n·p)* where *p* = *P*(honest maintenance).
 
+**Oracle Bonding Economics**: Bond requirement *B_oracle* = 2 × *max_daily_volume* × *P_BTC* / 365 ensures cost of manipulation exceeds potential profit.
+
+**Proof-of-Reserves Efficiency**: Merkle tree size scales as O(log *n*) for *n* vaults, enabling efficient verification.
+
 **Value-at-Risk**: Daily 99% VaR = -2.33 × *σ_daily* × *portfolio_value*
 
 **Liquidation Bound**: Vault becomes liquidatable when *P_BTC* falls below *P_liq* = (*D_total* × *L*) / *B*
 
-## 12. Conclusion
+**Cascade Resistance**: Maximum single-block liquidation limited to 10% of system collateral prevents flash crashes.
 
-A mathematically-sound system for peer-to-peer multi-currency electronic cash using Bitcoin collateral has been presented. Progressive liquidation with thresholds *M* = 175%, partial liquidation at 130%, and full liquidation at *L* = 125% maintains system stability. Graduated oracle consensus prevents price manipulation. Direct redemption and insurance funds provide additional stability mechanisms. The system eliminates trusted third parties while achieving price stability through cryptographic proofs and economic incentives, extending Bitcoin's security model to stable-value transactions.
+## 12. Security Enhancements Summary
+
+**Oracle Security**: 20+ bonded sources with reputation scoring, slashing for misbehavior, and automatic failover mechanisms.
+
+**Proof-of-Reserves**: Every Bitcoin block commits to complete system state via Merkle trees, enabling real-time auditability.
+
+**Liquidation Safety**: Rate limiting, smoothing functions, and emergency breaks prevent cascade failures.
+
+**Transparency**: All operations cryptographically verifiable while preserving operator privacy.
+
+## 13. Conclusion
+
+A mathematically-sound system for peer-to-peer multi-currency electronic cash using Bitcoin collateral has been presented. Enhanced oracle security through bonding requirements and multi-source aggregation prevents manipulation. Progressive liquidation with cascade prevention maintains system stability under stress. Continuous proof-of-reserves provides real-time transparency. The system eliminates trusted third parties while achieving price stability through cryptographic proofs, economic incentives, and robust risk management, extending Bitcoin's security model to stable-value transactions with institutional-grade reliability.
