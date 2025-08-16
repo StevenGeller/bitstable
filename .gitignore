@@ -1,0 +1,42 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+*.pdb
+
+# Database files
+*.db/
+*.sled/
+bitstable_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+test_output.log
+
+# Local config
+config.toml
+.env
+.env.local
+
+# Bitcoin
+.bitcoin/
+.bitstable-regtest/
+*.dat
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+temp/
+tmp/
