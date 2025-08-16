@@ -1,0 +1,62 @@
+{
+  "network": "Testnet",
+  "min_collateral_ratio": 1.75,
+  "liquidation_threshold": 1.25,
+  "stability_fee_apr": 0.02,
+  "oracle_threshold": 3,
+  "bitcoin_config": {
+    "network": "Testnet",
+    "rpc_url": "http://127.0.0.1:18332",
+    "rpc_user": "bitstable",
+    "rpc_password": "change_this_password",
+    "min_confirmations": 1
+  },
+  "oracle_endpoints": [
+    {
+      "name": "coinbase",
+      "url": "https://api.coinbase.com/v2/exchange-rates?currency=BTC",
+      "weight": 1.0
+    },
+    {
+      "name": "bitstamp", 
+      "url": "https://www.bitstamp.net/api/v2/ticker/btcusd/",
+      "weight": 1.0
+    },
+    {
+      "name": "kraken",
+      "url": "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
+      "weight": 1.0
+    },
+    {
+      "name": "coindesk",
+      "url": "https://api.coindesk.com/v1/bpi/currentprice.json",
+      "weight": 0.5
+    }
+  ],
+  "supported_currencies": [
+    {
+      "code": "USD",
+      "name": "US Dollar", 
+      "decimals": 2,
+      "stability_fee_modifier": 1.0
+    },
+    {
+      "code": "EUR",
+      "name": "Euro",
+      "decimals": 2, 
+      "stability_fee_modifier": 1.1
+    },
+    {
+      "code": "GBP",
+      "name": "British Pound",
+      "decimals": 2,
+      "stability_fee_modifier": 1.15
+    },
+    {
+      "code": "JPY", 
+      "name": "Japanese Yen",
+      "decimals": 0,
+      "stability_fee_modifier": 1.05
+    }
+  ]
+}
