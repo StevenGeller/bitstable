@@ -102,7 +102,12 @@ impl BitcoinClient {
     /// Create client for regtest (regression test network) - fully controllable local network
     pub fn regtest(rpc_url: &str, username: &str, password: &str) -> Result<Self> {
         let auth = Auth::UserPass(username.to_string(), password.to_string());
-        Self::new(rpc_url, auth, Network::Regtest)
+        let mut client = Self::new(rpc_url, auth, Network::Regtest)?;
+        
+        // Ensure wallet exists for regtest
+        client.ensure_regtest_wallet()?;
+        
+        Ok(client)
     }
 
     /// Create regtest client using cookie authentication
@@ -262,8 +267,15 @@ impl BitcoinClient {
     fn get_wallet_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
         let mut utxos = Vec::new();
 
+        // For regtest, use higher confirmations to handle coinbase maturity
+        let min_confirmations = if self.network == Network::Regtest { 
+            Some(100) // Coinbase maturity requirement
+        } else { 
+            Some(1) 
+        };
+
         let unspent_outputs = self.client.list_unspent(
-            Some(1), // min confirmations
+            min_confirmations, // min confirmations
             None,    // max confirmations  
             Some(&[address]),
             None,    // include_unsafe
@@ -694,6 +706,15 @@ impl BitcoinClient {
             .map_err(|e| BitStableError::InvalidConfig(format!("Public key compression failed: {}", e)))?;
         let address = Address::p2wpkh(&compressed_pubkey, self.network);
         
+        // For regtest, import the private key into the wallet
+        if self.network == Network::Regtest {
+            if let Err(e) = self.client.import_private_key(&private_key, None, Some(false)) {
+                log::warn!("Failed to import private key to regtest wallet: {}", e);
+            } else {
+                log::debug!("Imported address {} to regtest wallet", address);
+            }
+        }
+        
         Ok((address, private_key))
     }
 
@@ -728,10 +749,14 @@ impl BitcoinClient {
         // Mine enough blocks to generate the required amount
         // Each block reward is 50 BTC in regtest (like early Bitcoin)
         let blocks_needed = (amount_btc / 50.0).ceil() as u64;
-        let blocks_to_mine = std::cmp::max(blocks_needed, 101); // Need 101 blocks for coinbase maturity
+        let initial_blocks = std::cmp::max(blocks_needed, 101); // Need 101 blocks for coinbase maturity
 
-        log::info!("Mining {} blocks to generate funds...", blocks_to_mine);
-        self.mine_blocks(blocks_to_mine, address).await?;
+        log::info!("Mining {} initial blocks to generate funds...", initial_blocks);
+        self.mine_blocks(initial_blocks, address).await?;
+        
+        // Mine additional 100 blocks to make the coinbase outputs spendable
+        log::info!("Mining additional 100 blocks for coinbase maturity...");
+        self.mine_blocks(100, address).await?;
 
         // Wait a moment for the blocks to be processed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -743,6 +768,47 @@ impl BitcoinClient {
 
         log::info!("Generated {} BTC across {} UTXOs", balance_btc.to_btc(), utxos.len());
         Ok(balance_btc)
+    }
+
+    /// Ensure wallet exists for regtest operations
+    fn ensure_regtest_wallet(&mut self) -> Result<()> {
+        if self.network != Network::Regtest {
+            return Ok(()); // Only needed for regtest
+        }
+
+        const WALLET_NAME: &str = "bitstable_regtest";
+
+        // Check if wallet already exists
+        let wallets = self.client.list_wallets()
+            .map_err(|e| BitStableError::BitcoinRpcError(e.to_string()))?;
+
+        if wallets.contains(&WALLET_NAME.to_string()) {
+            log::debug!("Regtest wallet '{}' already loaded", WALLET_NAME);
+            return Ok(());
+        }
+
+        // Try to load existing wallet
+        match self.client.load_wallet(WALLET_NAME) {
+            Ok(_) => {
+                log::info!("Loaded existing regtest wallet '{}'", WALLET_NAME);
+                return Ok(());
+            }
+            Err(_) => {
+                log::debug!("No existing wallet found, creating new one");
+            }
+        }
+
+        // Create new wallet
+        self.client.create_wallet(
+            WALLET_NAME,
+            Some(false), // disable_private_keys
+            Some(false), // blank
+            None,        // passphrase
+            Some(false)  // avoid_reuse
+        ).map_err(|e| BitStableError::BitcoinRpcError(format!("Failed to create regtest wallet: {}", e)))?;
+
+        log::info!("Created new regtest wallet '{}'", WALLET_NAME);
+        Ok(())
     }
 
     /// Confirm transactions by mining blocks (regtest only)

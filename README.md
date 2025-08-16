@@ -1,5 +1,9 @@
 # BitStable - Bitcoin-Backed Multi-Currency Stablecoin Protocol
 
+[![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Bitcoin](https://img.shields.io/badge/Bitcoin-000?style=for-the-badge&logo=bitcoin&logoColor=white)](https://bitcoin.org/)
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
+
 ## Overview
 
 BitStable is a decentralized stablecoin protocol built on Bitcoin that enables users to mint stable value tokens backed by Bitcoin collateral. The protocol implements an overcollateralized vault system with automated liquidation mechanisms and **multi-currency support** to maintain peg stability across different fiat currencies.
